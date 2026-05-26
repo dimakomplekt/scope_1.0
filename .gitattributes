@@ -1,0 +1,7 @@
+* text=auto
+
+*.c text
+*.h text
+
+# SDL как бинарник (ВАЖНО)
+lib/SDL2/** -text
