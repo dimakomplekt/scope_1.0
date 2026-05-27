@@ -19,6 +19,7 @@ typedef enum scope_mode
 
 } scope_mode_en;
 
+
 typedef struct scope {
 
     int width;
