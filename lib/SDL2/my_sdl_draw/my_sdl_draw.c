@@ -139,4 +139,30 @@ void my_sdl_draw_filled_rect(
     }
 }
 
+
+void my_sdl_draw_filled_circle(
+
+    SDL_Renderer* renderer,
+    int cx,
+    int cy,
+    int radius,
+    SDL_Color color
+    
+)
+{
+    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+
+    for (int y = -radius; y <= radius; y++)
+    {
+        for (int x = -radius; x <= radius; x++)
+        {
+            if (x*x + y*y <= radius*radius)
+            {
+                SDL_RenderDrawPoint(renderer, cx + x, cy + y);
+            }
+        }
+    }
+}
+
+
 // =========================================================================================== Drawing functions

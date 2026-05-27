@@ -56,4 +56,15 @@ void my_sdl_draw_filled_rect(
 
 );
 
+
+void my_sdl_draw_filled_circle(
+
+    SDL_Renderer* renderer,
+    int cx,
+    int cy,
+    int radius,
+    SDL_Color color
+    
+);
+
 // =========================================================================================== Drawing APIs

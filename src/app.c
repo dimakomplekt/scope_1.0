@@ -6,8 +6,17 @@
 
 // =========================================================================================== IMPORT
 
+// =========================================================================================== DATA
+
+Button btn;
+
+// =========================================================================================== DATA
+
+
+void test_click(Button* btn);
 
 // =========================================================================================== REALIZATION
+
 
 int SDL_app_init_and_run()
 {
@@ -58,6 +67,22 @@ int SDL_app_init(SDL_app_ctx* app, int w, int h, const char* title)
     app->running = 1;
     app->name = title;
 
+    GI_init();
+
+    btn.x = 400;
+    btn.y = 300;
+    btn.w = 50;
+    btn.h = 50;
+    btn.radius = 25;
+    btn.border_thickness = 5;
+    btn.idle_color = hex_to_sdl_color("#0214db", 255);
+    btn.hover_color = hex_to_sdl_color("#ff4920", 255);
+    btn.pressed_color = hex_to_sdl_color("#a7f109", 255);
+    btn.border_color = hex_to_sdl_color("#0080ff", 255);
+    btn.down_inside = false;
+
+    btn.on_click = test_click;
+
 
     cyrillic_console_setup();
 
@@ -80,11 +105,18 @@ void SDL_app_handle_events(SDL_app_ctx* app)
 }
 
 
+void test_click(Button* btn)
+{
+    SDL_Log("CLICK");
+}
+
 // Апдейт апы в котором идут апдейты всех объектов
 void SDL_app_update(SDL_app_ctx* app)
 {
     // ===== UPDATE =====
+    GI_update();
 
+    BTN_update(&btn);
 
     // ===== UPDATE =====
 }
@@ -117,6 +149,9 @@ void SDL_app_render(SDL_app_ctx* app)
     
     // =========================
 
+
+    BTN_render(&btn, app->renderer);
+
     // ===== RENDER =====
 
     SDL_RenderPresent(app->renderer);
@@ -133,6 +168,8 @@ int SDL_app_run(SDL_app_ctx* app)
         // Апдейт и рендер апы
         SDL_app_update(app);
         SDL_app_render(app);
+
+        SDL_Delay(1);
     }
 
     return 1;

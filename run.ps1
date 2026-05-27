@@ -17,7 +17,9 @@ $SRC = @(
     "lib/scope/scope.c",
     "lib/sin_generator/sin_generator.c",
     "lib/app_timer/app_timer.c",
-    "lib/SDL2/my_sdl_draw/my_sdl_draw.c"
+    "lib/SDL2/my_sdl_draw/my_sdl_draw.c",
+    "lib/SDL2/global_inputs/global_inputs.c",
+    "lib/SDL2/UI_elements/my_sdl_button/my_sdl_button.c"
 )
 
 # =========================

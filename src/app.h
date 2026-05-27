@@ -12,6 +12,8 @@
 #include "../lib/engine.h"
 
 #include "../lib/SDL2/my_sdl_draw/my_sdl_draw.h"
+#include "../lib/SDL2/ui.h"
+
 
 #include "../lib/app_timer/app_timer.h"
 #include "../lib/scope/scope.h"
