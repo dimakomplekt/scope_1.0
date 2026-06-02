@@ -9,6 +9,7 @@
 // =========================================================================================== DATA
 
 Button btn;
+Textbox* tbx;
 
 // =========================================================================================== DATA
 
@@ -22,6 +23,8 @@ int SDL_app_init_and_run()
 {
     SDL_app_ctx app = {0};
 
+
+    // SDL App init
     if (!SDL_app_init(&app, SCREEN_WIDTH, SCREEN_HEIGHT, "Scope_1.0")) return -1;
 
     SDL_app_run(&app);
@@ -35,9 +38,11 @@ int SDL_app_init_and_run()
 int SDL_app_init(SDL_app_ctx* app, int w, int h, const char* title)
 {
 
+    // SDL INIT
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0)
         return 0;
 
+    // SDL TTF INIT
     if (TTF_Init() != 0)
         return 0;
 
@@ -83,6 +88,11 @@ int SDL_app_init(SDL_app_ctx* app, int w, int h, const char* title)
 
     btn.on_click = test_click;
 
+    tbx = Textbox_init(hex_to_sdl_color("#06e951", 255), 24);
+    tbx->x = 800;
+    tbx->y = 800;
+    Textbox_set_content(tbx, "HELLO TTF ON C");
+
 
     cyrillic_console_setup();
 
@@ -116,7 +126,9 @@ void SDL_app_update(SDL_app_ctx* app)
     // ===== UPDATE =====
     GI_update();
 
-    BTN_update(&btn);
+    Button_update(&btn);
+
+    Textbox_update(tbx, app->renderer);
 
     // ===== UPDATE =====
 }
@@ -150,7 +162,9 @@ void SDL_app_render(SDL_app_ctx* app)
     // =========================
 
 
-    BTN_render(&btn, app->renderer);
+    Button_render(&btn, app->renderer);
+
+    Textbox_render(tbx, app->renderer);
 
     // ===== RENDER =====
 

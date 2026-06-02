@@ -55,7 +55,7 @@ static bool point_inside(Button* btn, int px, int py)
 
 // =========================================================================================== UPDATE
 
-void BTN_update(Button* btn)
+void Button_update(Button* btn)
 {
     int mx = (int)GI_mouse_x();
     int my = (int)GI_mouse_y();
@@ -85,7 +85,7 @@ void BTN_update(Button* btn)
 
 // =========================================================================================== RENDER
 
-void BTN_render(Button* btn, SDL_Renderer* renderer)
+void Button_render(Button* btn, SDL_Renderer* renderer)
 {
     SDL_Color color;
 

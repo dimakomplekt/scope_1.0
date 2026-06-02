@@ -20,6 +20,7 @@ $SRC = @(
     "lib/SDL2/my_sdl_draw/my_sdl_draw.c",
     "lib/SDL2/global_inputs/global_inputs.c",
     "lib/SDL2/UI_elements/my_sdl_button/my_sdl_button.c"
+    "lib/SDL2/UI_elements/my_sdl_textbox/my_sdl_textbox.c"
 )
 
 # =========================
@@ -28,6 +29,22 @@ $SRC = @(
 # сюда будет собран exe
 $BUILD_DIR = "build"
 $OUT = "$BUILD_DIR/app.exe"
+
+
+# =========================
+# КОНТЕНТ (ШРИФТЫ)
+# =========================
+
+$FONT_SRC = "lib/SDL2/UI_elements/content/fonts"
+$FONT_DST = "$BUILD_DIR/content/fonts"
+
+# создаём папку назначения
+if (!(Test-Path $FONT_DST)) {
+    New-Item -ItemType Directory -Path $FONT_DST -Force | Out-Null
+}
+
+# копируем всё содержимое
+Copy-Item "$FONT_SRC/*" $FONT_DST -Recurse -Force
 
 # =========================
 # SDL2 БИБЛИОТЕКИ

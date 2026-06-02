@@ -12,9 +12,13 @@
 // =========================================================================================== IMPORT
 
 
+
+// =========================================================================================== BUTTON
+
+
 typedef struct Button Button;
 
-typedef void (*ButtonCallback)(Button* btn);
+typedef void (*Button_click_callback)(Button* btn);
 
 
 struct Button
@@ -54,12 +58,12 @@ struct Button
     // CALLBACK
     // =======================================================================================
 
-    ButtonCallback on_click;
+    Button_click_callback on_click;
 };
 
 
 // =========================================================================================== API
 
-void BTN_update(Button* btn);
+void Button_update(Button* btn);
 
-void BTN_render(Button* btn, SDL_Renderer* renderer);
+void Button_render(Button* btn, SDL_Renderer* renderer);
