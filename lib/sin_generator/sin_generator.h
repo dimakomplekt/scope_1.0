@@ -25,7 +25,7 @@ typedef struct sin_generator
 
     int initialized;
 
-} sin_generator;
+} sin_generator_ctx;
 
 // =========================================================================================== GENERATOR STRUCT
 

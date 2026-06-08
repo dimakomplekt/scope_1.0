@@ -44,7 +44,7 @@ typedef struct Textbox
     SDL_Texture* texture;
     bool dirty;
 
-} Textbox;
+};
 
 
 
