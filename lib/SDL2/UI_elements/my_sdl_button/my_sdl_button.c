@@ -102,7 +102,7 @@ void Button_render(Button* btn, SDL_Renderer* renderer)
 
     if (btn->radius <= 0)
     {
-        my_sdl_draw_filled_rect(
+        my_sdl_draw_filled_rect_bi(
             renderer,
             btn->x,
             btn->y,
@@ -163,7 +163,7 @@ void Button_render(Button* btn, SDL_Renderer* renderer)
     else
     {
         // fallback — прямоугольник
-        my_sdl_draw_filled_rect(
+        my_sdl_draw_filled_rect_bi(
             renderer,
             btn->x,
             btn->y,

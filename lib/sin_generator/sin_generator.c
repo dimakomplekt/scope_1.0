@@ -11,7 +11,7 @@
 
 // =========================================================================================== GENERATOR SINGLETON
 
-static sin_generator Oscillator_1 = {0};
+static sin_generator_ctx Oscillator_1 = {0};
 
 // =========================================================================================== GENERATOR SINGLETON
 

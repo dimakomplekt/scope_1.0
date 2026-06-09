@@ -96,7 +96,7 @@ void my_sdl_draw_rect(
 }
 
 
-void my_sdl_draw_filled_rect(
+void my_sdl_draw_filled_rect_bi(
     SDL_Renderer* renderer,
     int x, int y,
     int w, int h,
@@ -105,6 +105,9 @@ void my_sdl_draw_filled_rect(
     int border_thickness
 )
 {
+    x -= w / 2;
+    y -= h / 2;
+
     // FILL
 
     SDL_SetRenderDrawColor(
@@ -115,30 +118,36 @@ void my_sdl_draw_filled_rect(
         fill_color.a
     );
 
-    x -= w / 2;
-    y -= h / 2;
-
     SDL_Rect fill = { x, y, w, h };
     SDL_RenderFillRect(renderer, &fill);
 
 
-    // BORDER (optional)
+    // BORDER INSIDE
 
     if (border_thickness > 0)
     {
-        x += w / 2;
-        y += h / 2;
-
-        my_sdl_draw_rect(
+        SDL_SetRenderDrawColor(
             renderer,
-            x, y,
-            w, h,
-            border_color,
-            border_thickness
+            border_color.r,
+            border_color.g,
+            border_color.b,
+            border_color.a
         );
+
+        for (int i = 0; i < border_thickness; i++)
+        {
+            SDL_Rect border =
+            {
+                x + i,
+                y + i,
+                w - 2 * i,
+                h - 2 * i
+            };
+
+            SDL_RenderDrawRect(renderer, &border);
+        }
     }
 }
-
 
 void my_sdl_draw_filled_circle(
 

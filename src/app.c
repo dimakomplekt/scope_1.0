@@ -11,6 +11,8 @@
 Button btn;
 Textbox* tbx;
 
+Scope scope_1;
+
 // =========================================================================================== DATA
 
 
@@ -74,25 +76,27 @@ int SDL_app_init(SDL_app_ctx* app, int w, int h, const char* title)
 
     GI_init();
 
-    btn.x = 400;
-    btn.y = 300;
-    btn.w = 50;
-    btn.h = 50;
-    btn.radius = 25;
-    btn.border_thickness = 5;
-    btn.idle_color = hex_to_sdl_color("#0214db", 255);
-    btn.hover_color = hex_to_sdl_color("#ff4920", 255);
-    btn.pressed_color = hex_to_sdl_color("#a7f109", 255);
-    btn.border_color = hex_to_sdl_color("#0080ff", 255);
-    btn.down_inside = false;
+    // btn.x = 400;
+    // btn.y = 300;
+    // btn.w = 50;
+    // btn.h = 50;
+    // btn.radius = 25;
+    // btn.border_thickness = 5;
+    // btn.idle_color = hex_to_sdl_color("#0214db", 255);
+    // btn.hover_color = hex_to_sdl_color("#ff4920", 255);
+    // btn.pressed_color = hex_to_sdl_color("#a7f109", 255);
+    // btn.border_color = hex_to_sdl_color("#0080ff", 255);
+    // btn.down_inside = false;
+// 
+    // btn.on_click = test_click;
+// 
+    // tbx = Textbox_init(hex_to_sdl_color("#06e951", 255), 24);
+    // tbx->x = 800;
+    // tbx->y = 800;
+    // Textbox_set_content(tbx, "HELLO TTF ON C");
 
-    btn.on_click = test_click;
 
-    tbx = Textbox_init(hex_to_sdl_color("#06e951", 255), 24);
-    tbx->x = 800;
-    tbx->y = 800;
-    Textbox_set_content(tbx, "HELLO TTF ON C");
-
+    scope_init(&scope_1, app->renderer);
 
     cyrillic_console_setup();
 
@@ -126,9 +130,11 @@ void SDL_app_update(SDL_app_ctx* app)
     // ===== UPDATE =====
     GI_update();
 
-    Button_update(&btn);
+    // Button_update(&btn);
 
-    Textbox_update(tbx, app->renderer);
+    // Textbox_update(tbx, app->renderer);
+
+    scope_update(&scope_1);
 
     // ===== UPDATE =====
 }
@@ -146,25 +152,27 @@ void SDL_app_render(SDL_app_ctx* app)
     // TEST RECTANGLE
     // =========================
 
-    my_sdl_draw_filled_rect(
-
-    app->renderer,
-    SCREEN_WIDTH / 2,
-    SCREEN_HEIGHT / 2,
-    200,
-    200,
-    hex_to_sdl_color("#FF0000", 255),
-    hex_to_sdl_color("#7bec03", 255),
-    5
-
-    );
+    // my_sdl_draw_filled_rect_bi(
+// 
+    //     app->renderer,
+    //     SCREEN_WIDTH / 2,
+    //     SCREEN_HEIGHT / 2,
+    //     200,
+    //     200,
+    //     hex_to_sdl_color("#FF0000", 255),
+    //     hex_to_sdl_color("#7bec03", 255),
+    //     5
+// 
+    // );
     
     // =========================
 
 
-    Button_render(&btn, app->renderer);
+    // Button_render(&btn, app->renderer);
 
-    Textbox_render(tbx, app->renderer);
+    // Textbox_render(tbx, app->renderer);
+
+    scope_render(&scope_1);
 
     // ===== RENDER =====
 

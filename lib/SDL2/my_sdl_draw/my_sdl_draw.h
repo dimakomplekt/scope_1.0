@@ -45,7 +45,7 @@ void my_sdl_draw_rect(
 );
 
 
-void my_sdl_draw_filled_rect(
+void my_sdl_draw_filled_rect_bi(
 
     SDL_Renderer* renderer,
     int x, int y,

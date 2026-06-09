@@ -8,6 +8,7 @@
 
 #include "../../my_sdl_draw/my_sdl_draw.h"
 #include "../../global_inputs/global_inputs.h"
+#include "../my_sdl_textbox/my_sdl_textbox.h"
 
 // =========================================================================================== IMPORT
 
@@ -60,6 +61,10 @@ struct Button
 
     Button_click_callback on_click;
     
+    // =======================================================================================
+    // Textbox (optional)
+    // =======================================================================================
+    Textbox button_text;
 };
 
 
