@@ -57,6 +57,9 @@ static bool point_inside(Button* btn, int px, int py)
 
 void Button_update(Button* btn)
 {
+    // Textbox update
+
+
     int mx = (int)GI_mouse_x();
     int my = (int)GI_mouse_y();
 
@@ -198,4 +201,8 @@ void Button_render(Button* btn, SDL_Renderer* renderer)
             );
         }
     }
+
+    // Textbox render
+    Textbox_update(&btn->button_text, renderer);    // Плохо, но лень переделывать, должно быть в апдейте
+    Textbox_render(&btn->button_text, renderer);
 }

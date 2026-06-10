@@ -26,6 +26,22 @@ void scope_gui_init(Scope* used_scope, SDL_Renderer* renderer);
 void scope_gui_renew(Scope* used_scope);
 void scope_display_animation(Scope* used_scope);
 
+
+// Buttons callbacks
+void increase_signal_value_scale();
+void decrease_signal_value_scale();
+
+void increase_time_scale();
+void decrease_time_scale();
+
+
+void increase_frequency();
+void decrease_frequency();
+
+void change_mode();
+void change_signal();
+
+
 // =========================================================================================== Helper-functions predeclare
 
 
@@ -62,6 +78,12 @@ void scope_update(Scope* used_scope)
     scope_display_animation(used_scope);
 
     Textbox_update(&used_scope->scope_render_data.scope_signature_textbox, used_scope->scope_render_data.renderer);
+
+    Textbox_update(&used_scope->scope_render_data.change_value_scale_instruction_textbox, used_scope->scope_render_data.renderer);
+
+    Button_update(&used_scope->scope_render_data.decrease_value_scale_button);
+
+    Button_update(&used_scope->scope_render_data.increase_value_scale_button);
 }
 
 
@@ -75,9 +97,9 @@ void scope_render(Scope* used_scope)
         used_scope->scope_render_data.gui_parameters.background_y_2,
         SCREEN_WIDTH,
         SCREEN_HEIGHT,
-        used_scope->scope_render_data.main_color_3,
+        hex_to_sdl_color("#b8f87c", 254),
         used_scope->scope_render_data.gui_parameters.background_border_thicknes_1,
-        used_scope->scope_render_data.main_color_3
+        hex_to_sdl_color("#b8f87c", 254)
 
     );
 
@@ -420,7 +442,36 @@ void scope_render(Scope* used_scope)
         used_scope->scope_render_data.gui_parameters.v_line_16_color
                         
     );
+
     
+    // Кнопки и пояснения
+
+    // Изменение масштаба значения сигнала
+
+    my_sdl_draw_filled_rect_bi(
+
+        used_scope->scope_render_data.renderer,
+        used_scope->scope_render_data.gui_parameters.signal_scale_set_info_x_1,
+        used_scope->scope_render_data.gui_parameters.signal_scale_set_info_y_1,
+        used_scope->scope_render_data.gui_parameters.signal_scale_set_info_w_1,
+        used_scope->scope_render_data.gui_parameters.signal_scale_set_info_h_1,
+        used_scope->scope_render_data.gui_parameters.signal_scale_set_info_fill_color_1,
+        used_scope->scope_render_data.gui_parameters.signal_scale_set_info_border_thicknes_1,
+        used_scope->scope_render_data.gui_parameters.signal_scale_set_info_border_color_1
+
+    );
+
+    Textbox_render(&used_scope->scope_render_data.scope_signature_textbox, used_scope->scope_render_data.renderer);
+
+    Textbox_render(&used_scope->scope_render_data.change_value_scale_instruction_textbox, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.decrease_value_scale_button, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.increase_value_scale_button, used_scope->scope_render_data.renderer);
+    
+
+    // Изменение масштаба времени сигнала
+
 }
 
 
@@ -453,7 +504,7 @@ void scope_gui_init(Scope* used_scope, SDL_Renderer* renderer)
 
 
     // Строим осциллограф по сетке, используя 50 пикселей на единицу сетки 
-    used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit = 50;
+    used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit = 65;
 
 
     // Colors
@@ -463,7 +514,7 @@ void scope_gui_init(Scope* used_scope, SDL_Renderer* renderer)
     used_scope->scope_render_data.main_color_4 = hex_to_sdl_color("#0d26e4", 255);
     used_scope->scope_render_data.main_color_5 = hex_to_sdl_color("#313131", 150);
 
-    used_scope->scope_render_data.basic_border_thicknes_1 = 10;
+    used_scope->scope_render_data.basic_border_thicknes_1 = 5;
     used_scope->scope_render_data.basic_border_thicknes_2 = 5;
 
     // Базово - 1 вольт, 100 мкс на единицу сетки
@@ -562,6 +613,7 @@ void scope_gui_renew(Scope* used_scope)
     used_scope->scope_render_data.gui_parameters.background_border_color_1 = used_scope->scope_render_data.main_color_2;
 
     used_scope->scope_render_data.gui_parameters.background_border_thicknes_1 = used_scope->scope_render_data.basic_border_thicknes_1;
+
 
     // Текстбокс с названием дисплея
     used_scope->scope_render_data.scope_signature_textbox = *Textbox_init(used_scope->scope_render_data.main_color_2, 12);
@@ -783,8 +835,8 @@ void scope_gui_renew(Scope* used_scope)
 
 
     // V Line 3
-
-    used_scope->scope_render_data.gui_parameters.v_line_3_x1 = used_scope->scope_render_data.gui_parameters.v_line_1_x1 + 2 * margin_in_pixels;
+    
+    used_scope->scope_render_data.gui_parameters.v_line_3_x1 = used_scope->scope_render_data.gui_parameters.v_line_1_x1 + 2 * margin_in_pixels; 
     
     used_scope->scope_render_data.gui_parameters.v_line_3_y1 = used_scope->scope_render_data.gui_parameters.v_line_1_y1;
     
@@ -963,6 +1015,199 @@ void scope_gui_renew(Scope* used_scope)
 
     used_scope->scope_render_data.gui_parameters.v_line_17_color = used_scope->scope_render_data.main_color_2;
 
+
+    // ===== Кнопки и информация о кнопках =====
+
+    // Общий цвет для всех пояснений
+    used_scope->scope_render_data.gui_parameters.description_text_color = used_scope->scope_render_data.main_color_2;
+
+    
+    /*
+        Базируемся по направлению
+
+            scope_right_border_x_2
+            scope_right_border_y_2
+
+        через
+
+            buttons_signature_width_units;
+            buttons_signature_height_units;
+
+            buttons_1_width_units;
+            buttons_1_height_units;
+
+            buttons_2_width_units;
+            buttons_2_height_units;
+
+    */
+    
+    // Прямоугольник пояснения и координаты для текстбокса инструкции по изменению масштаба сигнала
+
+    int signatures_width = used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit * used_scope->scope_render_data.gui_parameters.buttons_signature_width_units;
+    int signatures_height = used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit * used_scope->scope_render_data.gui_parameters.buttons_signature_height_units;
+
+    int buttons_1_width = used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit * used_scope->scope_render_data.gui_parameters.buttons_1_width_units;
+    int buttons_1_height = used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit * used_scope->scope_render_data.gui_parameters.buttons_1_height_units;
+
+
+    // Один отступ + половина размера
+    used_scope->scope_render_data.gui_parameters.signal_scale_set_info_x_1 = 
+        scope_right_border_x_2 + margin_in_pixels + signatures_width * 0.5;
+    
+    used_scope->scope_render_data.gui_parameters.signal_scale_set_info_y_1 = 
+        scope_right_border_y_2 + signatures_height * 0.5;
+
+    used_scope->scope_render_data.gui_parameters.signal_scale_set_info_w_1 = signatures_width; 
+
+    used_scope->scope_render_data.gui_parameters.signal_scale_set_info_h_1 = signatures_height;
+
+    used_scope->scope_render_data.gui_parameters.signal_scale_set_info_fill_color_1 = used_scope->scope_render_data.main_color_1;
+
+    used_scope->scope_render_data.gui_parameters.signal_scale_set_info_border_color_1 = used_scope->scope_render_data.main_color_4;
+
+    used_scope->scope_render_data.gui_parameters.signal_scale_set_info_border_thicknes_1 = used_scope->scope_render_data.basic_border_thicknes_2;
+
+
+    // Текстбокс пояснения
+    used_scope->scope_render_data.change_value_scale_instruction_textbox = 
+        *Textbox_init(used_scope->scope_render_data.main_color_4, 24);
+
+    used_scope->scope_render_data.change_value_scale_instruction_textbox.x = used_scope->scope_render_data.gui_parameters.signal_scale_set_info_x_1;
+    used_scope->scope_render_data.change_value_scale_instruction_textbox.y = used_scope->scope_render_data.gui_parameters.signal_scale_set_info_y_1;
+
+    Textbox_set_content(&used_scope->scope_render_data.change_value_scale_instruction_textbox, "VS");
+
+
+    // Кнопки смены частоты
+
+    // Уменьшение
+
+    used_scope->scope_render_data.decrease_value_scale_button.x = 
+        used_scope->scope_render_data.gui_parameters.signal_scale_set_info_x_1 + signatures_width * 0.5 + buttons_1_width * 0.5;
+
+    used_scope->scope_render_data.decrease_value_scale_button.y = used_scope->scope_render_data.gui_parameters.signal_scale_set_info_y_1;
+    
+    used_scope->scope_render_data.decrease_value_scale_button.w = buttons_1_width;
+    used_scope->scope_render_data.decrease_value_scale_button.h = buttons_1_height;
+    used_scope->scope_render_data.decrease_value_scale_button.radius = 0;
+    used_scope->scope_render_data.decrease_value_scale_button.border_thickness = used_scope->scope_render_data.basic_border_thicknes_2;
+    used_scope->scope_render_data.decrease_value_scale_button.idle_color = used_scope->scope_render_data.main_color_1;
+    used_scope->scope_render_data.decrease_value_scale_button.hover_color = used_scope->scope_render_data.main_color_3;
+    used_scope->scope_render_data.decrease_value_scale_button.pressed_color = used_scope->scope_render_data.main_color_4;
+    used_scope->scope_render_data.decrease_value_scale_button.border_color = used_scope->scope_render_data.main_color_4;
+    used_scope->scope_render_data.decrease_value_scale_button.down_inside = false;
+    used_scope->scope_render_data.decrease_value_scale_button.on_click = decrease_signal_value_scale;
+
+    
+    used_scope->scope_render_data.decrease_value_scale_button.button_text = 
+        *Textbox_init(used_scope->scope_render_data.main_color_4, 48);
+
+    used_scope->scope_render_data.decrease_value_scale_button.button_text.x = used_scope->scope_render_data.decrease_value_scale_button.x;
+    used_scope->scope_render_data.decrease_value_scale_button.button_text.y = used_scope->scope_render_data.decrease_value_scale_button.y;
+
+    Textbox_set_content(&used_scope->scope_render_data.decrease_value_scale_button.button_text, "-");
+
+
+    // Увеличение
+
+    used_scope->scope_render_data.increase_value_scale_button.x = 
+        used_scope->scope_render_data.decrease_value_scale_button.x + buttons_1_width * 1;
+
+    used_scope->scope_render_data.increase_value_scale_button.y = used_scope->scope_render_data.gui_parameters.signal_scale_set_info_y_1;
+    
+    used_scope->scope_render_data.increase_value_scale_button.w = buttons_1_width;
+    used_scope->scope_render_data.increase_value_scale_button.h = buttons_1_height;
+    used_scope->scope_render_data.increase_value_scale_button.radius = 0;
+    used_scope->scope_render_data.increase_value_scale_button.border_thickness = used_scope->scope_render_data.basic_border_thicknes_2;
+    used_scope->scope_render_data.increase_value_scale_button.idle_color = used_scope->scope_render_data.main_color_1;
+    used_scope->scope_render_data.increase_value_scale_button.hover_color = used_scope->scope_render_data.main_color_3;
+    used_scope->scope_render_data.increase_value_scale_button.pressed_color = used_scope->scope_render_data.main_color_4;
+    used_scope->scope_render_data.increase_value_scale_button.border_color = used_scope->scope_render_data.main_color_4;
+    used_scope->scope_render_data.increase_value_scale_button.down_inside = false;
+    used_scope->scope_render_data.increase_value_scale_button.on_click = increase_signal_value_scale;
+
+    
+    used_scope->scope_render_data.increase_value_scale_button.button_text = 
+        *Textbox_init(used_scope->scope_render_data.main_color_4, 48);
+
+    used_scope->scope_render_data.increase_value_scale_button.button_text.x = used_scope->scope_render_data.increase_value_scale_button.x;
+    used_scope->scope_render_data.increase_value_scale_button.button_text.y = used_scope->scope_render_data.increase_value_scale_button.y;
+
+    Textbox_set_content(&used_scope->scope_render_data.increase_value_scale_button.button_text, "+");
+
+
+    /*
+    // Координаты кнопки уменьшения масштаба сигнала
+    used_scope->scope_render_data.gui_parameters.signal_scale_decrease_button_x_1;
+    used_scope->scope_render_data.gui_parameters.signal_scale_decrease_button_y_1;
+    
+    // Координаты кнопки увеличения масштаба сигнала
+
+    used_scope->scope_render_data.gui_parameters.signal_scale_increase_button_x_1;
+    used_scope->scope_render_data.gui_parameters.signal_scale_increase_button_y_1;
+
+
+    // Прямоугольник пояснения и координаты для текстбокса инструкции по изменению масштаба времени
+
+    used_scope->scope_render_data.gui_parameters.time_scale_set_info_x_1;
+    used_scope->scope_render_data.gui_parameters.time_scale_set_info_y_1;
+
+    used_scope->scope_render_data.gui_parameters.time_scale_set_info_w_1;
+    used_scope->scope_render_data.gui_parameters.time_scale_set_info_h_1;
+
+    used_scope->scope_render_data.gui_parameters.time_scale_set_info_fill_color_1;
+
+    used_scope->scope_render_data.gui_parameters.time_scale_set_info_border_color_1;
+
+    used_scope->scope_render_data.gui_parameters.time_scale_set_info_border_thicknes_1;
+
+
+    // Координаты кнопки уменьшения масштаба времени
+    used_scope->scope_render_data.gui_parameters.time_scale_decrease_button_x_1;
+    used_scope->scope_render_data.gui_parameters.time_scale_decrease_button_y_1;
+    
+    // Координаты кнопки увеличения масштаба времени
+
+    used_scope->scope_render_data.gui_parameters.time_scale_increase_button_x_1;
+    used_scope->scope_render_data.gui_parameters.time_scale_increase_button_y_1;
+
+
+    // Прямоугольник пояснения и координаты для текстбокса инструкции по изменению частоты сигнала
+
+    used_scope->scope_render_data.gui_parameters.freq_reset_info_x_1;
+    used_scope->scope_render_data.gui_parameters.freq_reset_info_y_1;
+
+    used_scope->scope_render_data.gui_parameters.freq_reset_info_w_1;
+    used_scope->scope_render_data.gui_parameters.freq_reset_info_h_1;
+
+    used_scope->scope_render_data.gui_parameters.freq_reset_info_fill_color_1;
+
+    used_scope->scope_render_data.gui_parameters.freq_reset_info_border_color_1;
+
+    used_scope->scope_render_data.gui_parameters.freq_info_border_thicknes_1;
+
+
+    // Координаты кнопки уменьшения масштаба времени
+    used_scope->scope_render_data.gui_parameters.freq_decrease_button_x_1;
+    used_scope->scope_render_data.gui_parameters.freq_decrease_button_y_1;
+    
+    // Координаты кнопки увеличения масштаба времени
+
+    used_scope->scope_render_data.gui_parameters.freq_increase_button_x_1;
+    used_scope->scope_render_data.gui_parameters.freq_increase_button_y_1;
+
+
+    // Координаты кнопки смены режима отображения
+    used_scope->scope_render_data.gui_parameters.image_regime_change_button_x_1;
+    used_scope->scope_render_data.gui_parameters.image_regime_change_button_y_1;
+    
+
+    // Координаты кнопки смены сигнала
+
+    used_scope->scope_render_data.gui_parameters.signal_change_button_x_1;
+    used_scope->scope_render_data.gui_parameters.signal_change_button_y_1;
+
+    */
 }
 
 // Изменение цвета дисплея - дребезжание
@@ -1002,9 +1247,53 @@ void scope_display_animation(Scope* used_scope)
         noised_color;
 }
 
+
 void scope_destroy(Scope* used_scope)
 {
 
 }
 
 // =========================================================================================== API
+
+
+// =========================================================================================== CALLBACKS
+
+void increase_signal_value_scale()
+{
+
+}
+void decrease_signal_value_scale()
+{
+
+}
+
+void increase_time_scale()
+{
+
+}
+void decrease_time_scale()
+{
+
+}
+
+
+void increase_frequency()
+{
+
+}
+void decrease_frequency()
+{
+
+}
+
+void change_mode()
+{
+
+}
+void change_signal()
+{
+
+}
+
+// =========================================================================================== CALLBACKS
+

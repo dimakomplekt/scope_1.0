@@ -31,6 +31,8 @@
 typedef struct scope_buffer {
 
     int32_t timestamps[BUFFER_SIZE];               // Времена сигналов
+
+    // TODO: FLOAT OR X1000 ect..
     int16_t samples_values[BUFFER_SIZE];           // Значения сигналов
 
     int head;                                      // Текущий индекс (для записи и чтения)
@@ -528,19 +530,20 @@ typedef struct scope_gui_basic_parameters
 
     // Прямоугольник пояснения и координаты для текстбокса инструкции по изменению масштаба сигнала
 
-    int signal_scale_reset_info_x_1;
-    int signal_scale_reset_info_y_1;
+    int signal_scale_set_info_x_1;
+    int signal_scale_set_info_y_1;
 
-    int signal_scale_reset_info_w_1;
-    int signal_scale_reset_info_h_1;
+    int signal_scale_set_info_w_1;
+    int signal_scale_set_info_h_1;
 
-    SDL_Color signal_scale_reset_info_fill_color_1;
+    SDL_Color signal_scale_set_info_fill_color_1;
 
-    SDL_Color signal_scale_reset_info_border_color_1;
+    SDL_Color signal_scale_set_info_border_color_1;
 
-    int signal_scale_reset_info_border_thicknes_1;
+    int signal_scale_set_info_border_thicknes_1;
 
     // Координаты кнопки уменьшения масштаба сигнала
+    
     int signal_scale_decrease_button_x_1;
     int signal_scale_decrease_button_y_1;
     
@@ -552,17 +555,17 @@ typedef struct scope_gui_basic_parameters
 
     // Прямоугольник пояснения и координаты для текстбокса инструкции по изменению масштаба времени
 
-    int time_scale_reset_info_x_1;
-    int time_scale_reset_info_y_1;
+    int time_scale_set_info_x_1;
+    int time_scale_set_info_y_1;
 
-    int time_scale_reset_info_w_1;
-    int time_scale_reset_info_h_1;
+    int time_scale_set_info_w_1;
+    int time_scale_set_info_h_1;
 
-    SDL_Color time_scale_reset_info_fill_color_1;
+    SDL_Color time_scale_set_info_fill_color_1;
 
-    SDL_Color time_scale_reset_info_border_color_1;
+    SDL_Color time_scale_set_info_border_color_1;
 
-    int time_scale_reset_info_border_thicknes_1;
+    int time_scale_set_info_border_thicknes_1;
 
 
     // Координаты кнопки уменьшения масштаба времени
@@ -609,7 +612,6 @@ typedef struct scope_gui_basic_parameters
 
     int signal_change_button_x_1;
     int signal_change_button_y_1;
-
 
 
     // Прямоугольник для масштаба сигнала
