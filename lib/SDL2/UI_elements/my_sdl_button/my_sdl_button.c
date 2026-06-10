@@ -109,8 +109,8 @@ void Button_render(Button* btn, SDL_Renderer* renderer)
             btn->w,
             btn->h,
             color,
-            color,
-            0
+            0,
+            color
         );
 
 
@@ -121,13 +121,15 @@ void Button_render(Button* btn, SDL_Renderer* renderer)
         if (btn->border_thickness > 0)
         {
             my_sdl_draw_rect(
+
                 renderer,
                 btn->x,
                 btn->y,
                 btn->w,
                 btn->h,
-                btn->border_color,
-                btn->border_thickness
+                btn->border_thickness,
+                btn->border_color
+                
             );
         }
     }
@@ -164,14 +166,16 @@ void Button_render(Button* btn, SDL_Renderer* renderer)
     {
         // fallback — прямоугольник
         my_sdl_draw_filled_rect_bi(
+
             renderer,
             btn->x,
             btn->y,
             btn->w,
             btn->h,
             color,
-            color,
-            0
+            0,
+            color
+
         );
 
 
@@ -182,13 +186,15 @@ void Button_render(Button* btn, SDL_Renderer* renderer)
         if (btn->border_thickness > 0)
         {
             my_sdl_draw_rect(
+
                 renderer,
                 btn->x,
                 btn->y,
                 btn->w,
                 btn->h,
-                btn->border_color,
-                btn->border_thickness
+                btn->border_thickness,
+                btn->border_color
+
             );
         }
     }

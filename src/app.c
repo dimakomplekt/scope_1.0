@@ -153,7 +153,7 @@ void SDL_app_render(SDL_app_ctx* app)
     // =========================
 
     // my_sdl_draw_filled_rect_bi(
-// 
+
     //     app->renderer,
     //     SCREEN_WIDTH / 2,
     //     SCREEN_HEIGHT / 2,
@@ -162,7 +162,7 @@ void SDL_app_render(SDL_app_ctx* app)
     //     hex_to_sdl_color("#FF0000", 255),
     //     hex_to_sdl_color("#7bec03", 255),
     //     5
-// 
+
     // );
     
     // =========================

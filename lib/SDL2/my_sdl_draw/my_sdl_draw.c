@@ -5,6 +5,8 @@
 
 #include "my_sdl_draw.h"
 
+#include <math.h>
+
 // =========================================================================================== IMPORT
 
 
@@ -53,17 +55,53 @@ void my_sdl_draw_pixel(
     SDL_RenderDrawPoint(renderer, x, y);
 }
 
+
 void my_sdl_draw_line(
-    
+
     SDL_Renderer* renderer,
     int x1, int y1,
     int x2, int y2,
+    int thickness,
     SDL_Color color
-                    
+
 )
 {
-    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
-    SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+    SDL_SetRenderDrawColor(
+        renderer,
+        color.r,
+        color.g,
+        color.b,
+        color.a
+    );
+
+    float dx = (float)(x2 - x1);
+    float dy = (float)(y2 - y1);
+
+    float len = sqrtf(dx * dx + dy * dy);
+
+    if (len == 0.0f)
+        return;
+
+    dx /= len;
+    dy /= len;
+
+    float nx = -dy;
+    float ny = dx;
+
+    float start = -(thickness - 1) * 0.5f;
+
+    for (int i = 0; i < thickness; i++)
+    {
+        float offset = start + i;
+
+        SDL_RenderDrawLine(
+            renderer,
+            (int)(x1 + nx * offset),
+            (int)(y1 + ny * offset),
+            (int)(x2 + nx * offset),
+            (int)(y2 + ny * offset)
+        );
+    }
 }
 
 
@@ -72,8 +110,8 @@ void my_sdl_draw_rect(
     SDL_Renderer* renderer,
     int x, int y,
     int w, int h,
-    SDL_Color color,
-    int thickness
+    int thickness,
+    SDL_Color color
 
 )
 {
@@ -97,12 +135,14 @@ void my_sdl_draw_rect(
 
 
 void my_sdl_draw_filled_rect_bi(
+
     SDL_Renderer* renderer,
     int x, int y,
     int w, int h,
     SDL_Color fill_color,
-    SDL_Color border_color,
-    int border_thickness
+    int border_thickness,
+    SDL_Color border_color
+
 )
 {
     x -= w / 2;

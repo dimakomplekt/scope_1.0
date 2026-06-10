@@ -25,22 +25,22 @@ void my_sdl_draw_pixel(
 
 
 void my_sdl_draw_line(
-    
+
     SDL_Renderer* renderer,
     int x1, int y1,
     int x2, int y2,
+    int thickness,
     SDL_Color color
-                    
-);
 
+);
 
 void my_sdl_draw_rect(
 
     SDL_Renderer* renderer,
     int x, int y,
     int w, int h,
-    SDL_Color color,
-    int thickness
+    int thickness,
+    SDL_Color color
 
 );
 
@@ -51,8 +51,8 @@ void my_sdl_draw_filled_rect_bi(
     int x, int y,
     int w, int h,
     SDL_Color fill_color,
-    SDL_Color border_color,
-    int border_thickness
+    int border_thickness,
+    SDL_Color border_color
 
 );
 
