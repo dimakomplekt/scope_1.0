@@ -217,7 +217,12 @@ void scope_render(Scope* used_scope)
         {
             SDL_Color glow_color = base_color;
         
-            glow_color.a = (Uint8)(50.0f * (1.0f - (float)i / layers));
+            // Нелинейное затухание
+
+            Uint8 new_glow = layers - i;
+
+            if (new_glow > 0) glow_color.a = new_glow;
+            else glow_color.a = 1;
 
             my_sdl_draw_rect(
         
