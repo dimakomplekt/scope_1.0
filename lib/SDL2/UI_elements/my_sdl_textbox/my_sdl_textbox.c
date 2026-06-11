@@ -52,6 +52,8 @@ Textbox* Textbox_init(SDL_Color color, int font_size)
 
     textbox->dirty = true;
 
+    textbox->draw_mode = HORIZONTAL_TEXT;
+
     return textbox;
 }
 
@@ -105,7 +107,6 @@ void Textbox_update(Textbox* textbox, SDL_Renderer* renderer)
     textbox->dirty = false;
 }
 
-
 void Textbox_render(Textbox* textbox, SDL_Renderer* renderer)
 {
     if (!textbox->texture)
@@ -115,18 +116,37 @@ void Textbox_render(Textbox* textbox, SDL_Renderer* renderer)
 
     dst.w = textbox->w;
     dst.h = textbox->h;
-    
+
     dst.x = textbox->x - dst.w / 2;
     dst.y = textbox->y - dst.h / 2;
-    
-    SDL_RenderCopy(
+
+    double angle = 0.0;
+
+    if (textbox->draw_mode == VERTICAL_TEXT)
+        angle = 90.0;
+
+    SDL_RenderCopyEx(
         renderer,
         textbox->texture,
         NULL,
-        &dst
+        &dst,
+        angle,
+        NULL,
+        SDL_FLIP_NONE
     );
 }
 
+
+void Textbox_set_draw_mode(
+    Textbox* textbox,
+    text_draw_mode new_draw_mode
+)
+{
+    if (!textbox)
+        return;
+
+    textbox->draw_mode = new_draw_mode;
+}
 
 
 void get_exe_dir(char* out_path, size_t size)

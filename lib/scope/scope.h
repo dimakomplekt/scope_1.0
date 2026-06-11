@@ -43,6 +43,16 @@ typedef struct scope_buffer {
 
 // ===== Scope mode enum =====
 
+
+typedef enum scope_state
+{
+    
+    OFF_SS,
+    ON_SS,
+    LIMIT_SS
+
+} scope_state;
+
 typedef enum scope_mode
 {
 
@@ -629,18 +639,28 @@ typedef struct scope_gui_basic_parameters
 
 
 
-    // Координаты кнопки смены режима отображения
-    int image_regime_change_button_x_1;
-    int image_regime_change_button_y_1;
-    
-
     // Координаты кнопки смены сигнала
 
     int signal_change_button_x_1;
     int signal_change_button_y_1;
 
+    // Координаты кнопки смены режима отображения
+    int image_regime_change_button_x_1;
+    int image_regime_change_button_y_1;
+    
 
-    // Прямоугольник для масштаба сигнала
+    // Координаты кнопки воспроизведения сигнала
+    int signal_play_button_x_1;
+    int signal_play_button_y_1;
+
+
+    // Координаты кнопки включения / выключения
+    int scope_on_off_button_x_1;
+    int scope_on_off_button_y_1;
+
+
+
+    // Прямоугольник для показа масштаба сигнала
 
     int signal_scale_info_x_1;
     int signal_scale_info_y_1;
@@ -769,11 +789,15 @@ typedef struct scope_render {
     Button decrease_amplitude_button;
     Button increase_amplitude_button;
 
-    Textbox change_mode_instruction_textbox;
-    Button change_mode_button;
 
-    Textbox change_signal_instruction_textbox;
-    Button change_signal_button;
+    Button signal_change_button;
+
+    Button mode_change_button;
+
+    Button signal_play_button;
+
+
+    Button scope_on_off_button;
 
 
 } scope_render_ctx;
@@ -783,7 +807,8 @@ typedef struct scope_main_settings
 {
 
     // Глобальные настройки
-
+    scope_state current_state;                      // Текущий режим
+    
     scope_mode_en current_mode;                     // Режим
 
     int periods_to_display;                         // Количество периодов для отображения (в режиме с фикс. кол-вом)

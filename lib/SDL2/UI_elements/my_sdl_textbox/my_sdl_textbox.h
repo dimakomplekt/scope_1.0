@@ -19,6 +19,14 @@
 
 // =========================================================================================== TEXTBOX
 
+typedef enum text_draw_mode
+{
+
+    HORIZONTAL_TEXT,
+    VERTICAL_TEXT
+
+} text_draw_mode;
+
 
 typedef struct Textbox
 {
@@ -40,6 +48,8 @@ typedef struct Textbox
     // ttf
     TTF_Font* font;
 
+    text_draw_mode draw_mode;
+
     // кэш
     SDL_Texture* texture;
     bool dirty;
@@ -60,6 +70,9 @@ void Textbox_set_content(Textbox* textbox, const char* text);
 void Textbox_update(Textbox* textbox, SDL_Renderer* renderer);
 
 void Textbox_render(Textbox* textbox, SDL_Renderer* renderer);
+
+
+void Textbox_set_draw_mode(Textbox* textbox, text_draw_mode new_draw_mode);
 
 void Textbox_destroy(Textbox* textbox);
 

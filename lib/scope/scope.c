@@ -42,6 +42,9 @@ void change_mode();
 void change_signal();
 
 
+void on_off_command(Button* btn);
+
+
 // =========================================================================================== Helper-functions predeclare
 
 
@@ -51,6 +54,7 @@ void scope_init(Scope* used_scope, SDL_Renderer* renderer)
 {
     // Main data init
 
+    used_scope->main_settings.current_state = OFF_SS;
     used_scope->main_settings.current_mode = SCOPE_MODE_SCROLL_TO_LEFT;     // Базово - скролл (синус инициируется низкочастотным)
     used_scope->main_settings.periods_to_display = 2;                       // Базово - 2 периода для отображения (в режиме с фикс. кол-вом)
     used_scope->main_settings.current_signal_units  = VOLTS;                // Базово - вольты 
@@ -105,6 +109,16 @@ void scope_update(Scope* used_scope)
     Button_update(&used_scope->scope_render_data.decrease_frequency_button);
 
     Button_update(&used_scope->scope_render_data.increase_frequency_button);
+
+
+    Button_update(&used_scope->scope_render_data.signal_change_button);
+
+    Button_update(&used_scope->scope_render_data.mode_change_button);
+
+    Button_update(&used_scope->scope_render_data.signal_play_button);
+
+    Button_update(&used_scope->scope_render_data.scope_on_off_button);
+
 }
 
 
@@ -188,282 +202,284 @@ void scope_render(Scope* used_scope)
     );
 
 
+
     // Mesh
+    if (used_scope->main_settings.current_state == ON_SS)
+    {
+        // Горизонтальные линии 2 - 8
 
-    // Горизонтальные линии 2 - 8
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.h_line_2_x1, 
+            used_scope->scope_render_data.gui_parameters.h_line_2_y1,
+            used_scope->scope_render_data.gui_parameters.h_line_2_x2, 
+            used_scope->scope_render_data.gui_parameters.h_line_2_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.h_line_2_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.h_line_2_x1, 
-        used_scope->scope_render_data.gui_parameters.h_line_2_y1,
-        used_scope->scope_render_data.gui_parameters.h_line_2_x2, 
-        used_scope->scope_render_data.gui_parameters.h_line_2_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.h_line_2_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.h_line_3_x1, 
+            used_scope->scope_render_data.gui_parameters.h_line_3_y1,
+            used_scope->scope_render_data.gui_parameters.h_line_3_x2, 
+            used_scope->scope_render_data.gui_parameters.h_line_3_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.h_line_3_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.h_line_3_x1, 
-        used_scope->scope_render_data.gui_parameters.h_line_3_y1,
-        used_scope->scope_render_data.gui_parameters.h_line_3_x2, 
-        used_scope->scope_render_data.gui_parameters.h_line_3_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.h_line_3_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.h_line_4_x1, 
+            used_scope->scope_render_data.gui_parameters.h_line_4_y1,
+            used_scope->scope_render_data.gui_parameters.h_line_4_x2, 
+            used_scope->scope_render_data.gui_parameters.h_line_4_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.h_line_4_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.h_line_4_x1, 
-        used_scope->scope_render_data.gui_parameters.h_line_4_y1,
-        used_scope->scope_render_data.gui_parameters.h_line_4_x2, 
-        used_scope->scope_render_data.gui_parameters.h_line_4_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.h_line_4_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.h_line_5_x1, 
+            used_scope->scope_render_data.gui_parameters.h_line_5_y1,
+            used_scope->scope_render_data.gui_parameters.h_line_5_x2, 
+            used_scope->scope_render_data.gui_parameters.h_line_5_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.h_line_5_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.h_line_5_x1, 
-        used_scope->scope_render_data.gui_parameters.h_line_5_y1,
-        used_scope->scope_render_data.gui_parameters.h_line_5_x2, 
-        used_scope->scope_render_data.gui_parameters.h_line_5_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.h_line_5_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.h_line_6_x1, 
+            used_scope->scope_render_data.gui_parameters.h_line_6_y1,
+            used_scope->scope_render_data.gui_parameters.h_line_6_x2, 
+            used_scope->scope_render_data.gui_parameters.h_line_6_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.h_line_6_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.h_line_6_x1, 
-        used_scope->scope_render_data.gui_parameters.h_line_6_y1,
-        used_scope->scope_render_data.gui_parameters.h_line_6_x2, 
-        used_scope->scope_render_data.gui_parameters.h_line_6_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.h_line_6_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.h_line_7_x1, 
+            used_scope->scope_render_data.gui_parameters.h_line_7_y1,
+            used_scope->scope_render_data.gui_parameters.h_line_7_x2, 
+            used_scope->scope_render_data.gui_parameters.h_line_7_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.h_line_7_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.h_line_7_x1, 
-        used_scope->scope_render_data.gui_parameters.h_line_7_y1,
-        used_scope->scope_render_data.gui_parameters.h_line_7_x2, 
-        used_scope->scope_render_data.gui_parameters.h_line_7_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.h_line_7_color
-                        
-    );
-
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.h_line_8_x1, 
-        used_scope->scope_render_data.gui_parameters.h_line_8_y1,
-        used_scope->scope_render_data.gui_parameters.h_line_8_x2, 
-        used_scope->scope_render_data.gui_parameters.h_line_8_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.h_line_8_color
-                        
-    );
-
-
-    // Вертикальные линии 2 - 16
-
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_2_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_2_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_2_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_2_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_2_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.h_line_8_x1, 
+            used_scope->scope_render_data.gui_parameters.h_line_8_y1,
+            used_scope->scope_render_data.gui_parameters.h_line_8_x2, 
+            used_scope->scope_render_data.gui_parameters.h_line_8_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.h_line_8_color
+                            
+        );
 
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_3_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_3_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_3_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_3_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_3_color
-                        
-    );
+        // Вертикальные линии 2 - 16
+
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_2_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_2_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_2_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_2_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_2_color
+                            
+        );
 
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_4_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_4_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_4_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_4_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_4_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_3_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_3_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_3_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_3_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_3_color
+                            
+        );
 
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_5_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_5_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_5_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_5_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_5_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_4_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_4_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_4_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_4_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_4_color
+                            
+        );
 
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_6_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_6_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_6_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_6_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_6_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_5_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_5_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_5_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_5_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_5_color
+                            
+        );
 
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_7_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_7_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_7_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_7_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_7_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_6_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_6_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_6_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_6_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_6_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_8_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_8_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_8_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_8_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_8_color
-                        
-    );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_9_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_9_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_9_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_9_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_9_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_7_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_7_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_7_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_7_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_7_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_10_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_10_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_10_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_10_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_10_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_8_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_8_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_8_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_8_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_8_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_11_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_11_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_11_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_11_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_11_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_9_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_9_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_9_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_9_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_9_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_12_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_12_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_12_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_12_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_12_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_10_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_10_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_10_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_10_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_10_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_13_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_13_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_13_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_13_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_13_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_11_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_11_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_11_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_11_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_11_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_14_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_14_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_14_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_14_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_14_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_12_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_12_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_12_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_12_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_12_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_15_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_15_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_15_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_15_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_15_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_13_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_13_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_13_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_13_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_13_color
+                            
+        );
 
-    my_sdl_draw_line(
-        
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.v_line_16_x1, 
-        used_scope->scope_render_data.gui_parameters.v_line_16_y1,
-        used_scope->scope_render_data.gui_parameters.v_line_16_x2, 
-        used_scope->scope_render_data.gui_parameters.v_line_16_y2,
-        used_scope->scope_render_data.gui_parameters.lines_thicknes,
-        used_scope->scope_render_data.gui_parameters.v_line_16_color
-                        
-    );
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_14_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_14_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_14_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_14_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_14_color
+                            
+        );
 
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_15_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_15_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_15_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_15_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_15_color
+                            
+        );
+
+        my_sdl_draw_line(
+            
+            used_scope->scope_render_data.renderer,
+            used_scope->scope_render_data.gui_parameters.v_line_16_x1, 
+            used_scope->scope_render_data.gui_parameters.v_line_16_y1,
+            used_scope->scope_render_data.gui_parameters.v_line_16_x2, 
+            used_scope->scope_render_data.gui_parameters.v_line_16_y2,
+            used_scope->scope_render_data.gui_parameters.lines_thicknes,
+            used_scope->scope_render_data.gui_parameters.v_line_16_color
+                            
+        );
+    }
     
     // Кнопки и пояснения
 
@@ -554,6 +570,15 @@ void scope_render(Scope* used_scope)
     Button_render(&used_scope->scope_render_data.decrease_frequency_button, used_scope->scope_render_data.renderer);
 
     Button_render(&used_scope->scope_render_data.increase_frequency_button, used_scope->scope_render_data.renderer);
+
+
+    Button_render(&used_scope->scope_render_data.signal_change_button, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.mode_change_button, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.signal_play_button, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.scope_on_off_button, used_scope->scope_render_data.renderer);
 
 }
 
@@ -1475,6 +1500,127 @@ void scope_gui_renew(Scope* used_scope)
     Textbox_set_content(&used_scope->scope_render_data.increase_frequency_button.button_text, "+");
 
 
+    
+    // Смена сигнала
+
+    used_scope->scope_render_data.signal_change_button.x = 
+        used_scope->scope_render_data.decrease_frequency_button.x - buttons_1_width * 1;
+
+    used_scope->scope_render_data.signal_change_button.y = used_scope->scope_render_data.increase_frequency_button.button_text.y + 2.5 * buttons_1_height;
+    
+    used_scope->scope_render_data.signal_change_button.w = buttons_1_width;
+    used_scope->scope_render_data.signal_change_button.h = buttons_1_height * 2;
+    used_scope->scope_render_data.signal_change_button.radius = 0;
+    used_scope->scope_render_data.signal_change_button.border_thickness = used_scope->scope_render_data.basic_border_thicknes_2;
+    used_scope->scope_render_data.signal_change_button.idle_color = used_scope->scope_render_data.main_color_2;
+    used_scope->scope_render_data.signal_change_button.hover_color = hex_to_sdl_color("#1a2209", 255);
+    used_scope->scope_render_data.signal_change_button.pressed_color = used_scope->scope_render_data.main_color_1;
+    used_scope->scope_render_data.signal_change_button.border_color = used_scope->scope_render_data.main_color_1;
+    used_scope->scope_render_data.signal_change_button.down_inside = false;
+    used_scope->scope_render_data.signal_change_button.on_click = increase_signal_value_scale;
+
+    
+    used_scope->scope_render_data.signal_change_button.button_text = 
+        *Textbox_init(used_scope->scope_render_data.main_color_1, 24);
+
+    used_scope->scope_render_data.signal_change_button.button_text.x = used_scope->scope_render_data.signal_change_button.x;
+    used_scope->scope_render_data.signal_change_button.button_text.y = used_scope->scope_render_data.signal_change_button.y;
+        
+    Textbox_set_draw_mode(&used_scope->scope_render_data.signal_change_button.button_text, VERTICAL_TEXT);
+    Textbox_set_content(&used_scope->scope_render_data.signal_change_button.button_text, "SIGNAL");
+
+
+
+    // Смена режима
+
+    used_scope->scope_render_data.mode_change_button.x = 
+        used_scope->scope_render_data.decrease_frequency_button.x - buttons_1_width * 0;
+
+    used_scope->scope_render_data.mode_change_button.y = used_scope->scope_render_data.increase_frequency_button.button_text.y + 2.5 * buttons_1_height;
+    
+    used_scope->scope_render_data.mode_change_button.w = buttons_1_width;
+    used_scope->scope_render_data.mode_change_button.h = buttons_1_height * 2;
+    used_scope->scope_render_data.mode_change_button.radius = 0;
+    used_scope->scope_render_data.mode_change_button.border_thickness = used_scope->scope_render_data.basic_border_thicknes_2;
+    used_scope->scope_render_data.mode_change_button.idle_color = used_scope->scope_render_data.main_color_2;
+    used_scope->scope_render_data.mode_change_button.hover_color = hex_to_sdl_color("#1a2209", 255);
+    used_scope->scope_render_data.mode_change_button.pressed_color = used_scope->scope_render_data.main_color_1;
+    used_scope->scope_render_data.mode_change_button.border_color = used_scope->scope_render_data.main_color_1;
+    used_scope->scope_render_data.mode_change_button.down_inside = false;
+    used_scope->scope_render_data.mode_change_button.on_click = increase_signal_value_scale;
+
+    
+    used_scope->scope_render_data.mode_change_button.button_text = 
+        *Textbox_init(used_scope->scope_render_data.main_color_1, 24);
+
+    used_scope->scope_render_data.mode_change_button.button_text.x = used_scope->scope_render_data.mode_change_button.x;
+    used_scope->scope_render_data.mode_change_button.button_text.y = used_scope->scope_render_data.mode_change_button.y;
+        
+    Textbox_set_draw_mode(&used_scope->scope_render_data.mode_change_button.button_text, VERTICAL_TEXT);
+    Textbox_set_content(&used_scope->scope_render_data.mode_change_button.button_text, "MODE");
+
+
+    // Проигрывание сигнала
+
+    used_scope->scope_render_data.signal_play_button.x = 
+        used_scope->scope_render_data.decrease_frequency_button.x + buttons_1_width * 1;
+
+    used_scope->scope_render_data.signal_play_button.y = used_scope->scope_render_data.increase_frequency_button.button_text.y + 2.5 * buttons_1_height;
+    
+    used_scope->scope_render_data.signal_play_button.w = buttons_1_width;
+    used_scope->scope_render_data.signal_play_button.h = buttons_1_height * 2;
+    used_scope->scope_render_data.signal_play_button.radius = 0;
+    used_scope->scope_render_data.signal_play_button.border_thickness = used_scope->scope_render_data.basic_border_thicknes_2;
+    used_scope->scope_render_data.signal_play_button.idle_color = used_scope->scope_render_data.main_color_2;
+    used_scope->scope_render_data.signal_play_button.hover_color = hex_to_sdl_color("#1a2209", 255);
+    used_scope->scope_render_data.signal_play_button.pressed_color = used_scope->scope_render_data.main_color_1;
+    used_scope->scope_render_data.signal_play_button.border_color = used_scope->scope_render_data.main_color_1;
+    used_scope->scope_render_data.signal_play_button.down_inside = false;
+    used_scope->scope_render_data.signal_play_button.on_click = increase_signal_value_scale;
+
+    
+    used_scope->scope_render_data.signal_play_button.button_text = 
+        *Textbox_init(used_scope->scope_render_data.main_color_1, 24);
+
+    used_scope->scope_render_data.signal_play_button.button_text.x = used_scope->scope_render_data.signal_play_button.x;
+    used_scope->scope_render_data.signal_play_button.button_text.y = used_scope->scope_render_data.signal_play_button.y;
+        
+    Textbox_set_draw_mode(&used_scope->scope_render_data.signal_play_button.button_text, VERTICAL_TEXT);
+    Textbox_set_content(&used_scope->scope_render_data.signal_play_button.button_text, "PLAY");
+
+
+    // Проигрывание сигнала
+
+    used_scope->scope_render_data.scope_on_off_button.x = 
+        used_scope->scope_render_data.mode_change_button.x;
+
+    used_scope->scope_render_data.scope_on_off_button.y = used_scope->scope_render_data.increase_frequency_button.button_text.y + 5 * buttons_1_height;
+    
+    used_scope->scope_render_data.scope_on_off_button.w = buttons_1_width * 3;
+    used_scope->scope_render_data.scope_on_off_button.h = buttons_1_height * 2;
+    used_scope->scope_render_data.scope_on_off_button.radius = 0;
+    used_scope->scope_render_data.scope_on_off_button.border_thickness = used_scope->scope_render_data.basic_border_thicknes_2;
+    used_scope->scope_render_data.scope_on_off_button.idle_color = used_scope->scope_render_data.main_color_2;
+    used_scope->scope_render_data.scope_on_off_button.hover_color = hex_to_sdl_color("#1a2209", 255);
+    used_scope->scope_render_data.scope_on_off_button.pressed_color = used_scope->scope_render_data.main_color_1;
+    used_scope->scope_render_data.scope_on_off_button.border_color = used_scope->scope_render_data.main_color_1;
+    used_scope->scope_render_data.scope_on_off_button.down_inside = false;
+
+    // Передаём ссылку на осциллограф
+    used_scope->scope_render_data.scope_on_off_button.user_data = used_scope;
+    used_scope->scope_render_data.scope_on_off_button.on_click = on_off_command;
+
+    
+    used_scope->scope_render_data.scope_on_off_button.button_text = 
+        *Textbox_init(used_scope->scope_render_data.main_color_1, 24);
+
+    used_scope->scope_render_data.scope_on_off_button.button_text.x = used_scope->scope_render_data.scope_on_off_button.x;
+    used_scope->scope_render_data.scope_on_off_button.button_text.y = used_scope->scope_render_data.scope_on_off_button.y;
+        
+    Textbox_set_content(&used_scope->scope_render_data.scope_on_off_button.button_text, "ON / OFF");
+
+
+
 
     /*
 
@@ -1544,38 +1690,41 @@ void scope_gui_renew(Scope* used_scope)
 // Изменение цвета дисплея - дребезжание
 void scope_display_animation(Scope* used_scope)
 {
-
-    SDL_Color base_color = used_scope->scope_render_data.main_color_3;
-
-    int noise_amplitude = 4;
-
     SDL_Color noised_color;
 
-    noised_color.r =
-        SDL_clamp(
-            base_color.r +
-            (rand() % (noise_amplitude * 2 + 1) - noise_amplitude),
-            0, 255
-        );
+    if (used_scope->main_settings.current_state == ON_SS)
+    {
+        SDL_Color base_color = used_scope->scope_render_data.main_color_3;
 
-    noised_color.g =
-        SDL_clamp(
-            base_color.g +
-            (rand() % (noise_amplitude * 2 + 1) - noise_amplitude),
-            0, 255
-        );
+        int noise_amplitude = 4;
 
-    noised_color.b =
-        SDL_clamp(
-            base_color.b +
-            (rand() % (noise_amplitude * 2 + 1) - noise_amplitude),
-            0, 255
-        );
+        noised_color.r =
+            SDL_clamp(
+                base_color.r +
+                (rand() % (noise_amplitude * 2 + 1) - noise_amplitude),
+                0, 255
+            );
 
-    noised_color.a = base_color.a;
+        noised_color.g =
+            SDL_clamp(
+                base_color.g +
+                (rand() % (noise_amplitude * 2 + 1) - noise_amplitude),
+                0, 255
+            );
 
-    used_scope->scope_render_data.gui_parameters.display_fill_color =
-        noised_color;
+        noised_color.b =
+            SDL_clamp(
+                base_color.b +
+                (rand() % (noise_amplitude * 2 + 1) - noise_amplitude),
+                0, 255
+            );
+
+        noised_color.a = base_color.a;
+    }
+
+    else noised_color = hex_to_sdl_color("#1b1913", 255);
+
+    used_scope->scope_render_data.gui_parameters.display_fill_color = noised_color;
 }
 
 
@@ -1624,6 +1773,18 @@ void change_mode()
 void change_signal()
 {
 
+}
+
+void on_off_command(Button* btn)
+{
+    Scope* used_scope = (Scope*)btn->user_data;
+
+    int curr = used_scope->main_settings.current_state;
+
+    if (curr == 0)
+        used_scope->main_settings.current_state = 1;
+    else
+        used_scope->main_settings.current_state = 0;
 }
 
 // =========================================================================================== CALLBACKS
