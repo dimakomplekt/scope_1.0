@@ -530,17 +530,17 @@ typedef struct scope_gui_basic_parameters
 
     // Прямоугольник пояснения и координаты для текстбокса инструкции по изменению масштаба сигнала
 
-    int signal_scale_set_info_x_1;
-    int signal_scale_set_info_y_1;
+    int value_scale_set_info_x_1;
+    int value_scale_set_info_y_1;
 
-    int signal_scale_set_info_w_1;
-    int signal_scale_set_info_h_1;
+    int value_scale_set_info_w_1;
+    int value_scale_set_info_h_1;
 
-    SDL_Color signal_scale_set_info_fill_color_1;
+    SDL_Color value_scale_set_info_fill_color_1;
 
-    SDL_Color signal_scale_set_info_border_color_1;
+    SDL_Color value_scale_set_info_border_color_1;
 
-    int signal_scale_set_info_border_thicknes_1;
+    int value_scale_set_info_border_thicknes_1;
 
     // Координаты кнопки уменьшения масштаба сигнала
     
@@ -578,29 +578,55 @@ typedef struct scope_gui_basic_parameters
     int time_scale_increase_button_y_1;
 
 
+    // Прямоугольник пояснения и координаты для текстбокса инструкции по изменению амплитуды сигнала
+
+    int amplitude_set_info_x_1;
+    int amplitude_set_info_y_1;
+
+    int amplitude_set_info_w_1;
+    int amplitude_set_info_h_1;
+
+    SDL_Color amplitude_set_info_fill_color_1;
+
+    SDL_Color amplitude_set_info_border_color_1;
+
+    int amplitude_set_info_border_thicknes_1;
+
+
+    // Координаты кнопки уменьшения сигнала
+    int amplitude_decrease_button_x_1;
+    int amplitude_decrease_button_y_1;
+    
+    // Координаты кнопки увеличения сигнала
+
+    int amplitude_increase_button_x_1;
+    int amplitude_increase_button_y_1;
+
+
     // Прямоугольник пояснения и координаты для текстбокса инструкции по изменению частоты сигнала
 
-    int freq_reset_info_x_1;
-    int freq_reset_info_y_1;
+    int frequency_set_info_x_1;
+    int frequency_set_info_y_1;
 
-    int freq_reset_info_w_1;
-    int freq_reset_info_h_1;
+    int frequency_set_info_w_1;
+    int frequency_set_info_h_1;
 
-    SDL_Color freq_reset_info_fill_color_1;
+    SDL_Color frequency_set_info_fill_color_1;
 
-    SDL_Color freq_reset_info_border_color_1;
+    SDL_Color frequency_set_info_border_color_1;
 
-    int freq_info_border_thicknes_1;
+    int frequency_set_info_border_thicknes_1;
 
 
-    // Координаты кнопки уменьшения масштаба времени
-    int freq_decrease_button_x_1;
-    int freq_decrease_button_y_1;
+    // Координаты кнопки уменьшения частоты 
+    int frequency_decrease_button_x_1;
+    int frequency_decrease_button_y_1;
     
-    // Координаты кнопки увеличения масштаба времени
+    // Координаты кнопки увеличения частоты 
 
-    int freq_increase_button_x_1;
-    int freq_increase_button_y_1;
+    int frequency_increase_button_x_1;
+    int frequency_increase_button_y_1;
+
 
 
     // Координаты кнопки смены режима отображения
@@ -735,9 +761,13 @@ typedef struct scope_render {
     Button decrease_time_scale_button;
     Button increase_time_scale_button;
 
-    Textbox change_freq_instruction_textbox;
-    Button decrease_freq_button;
-    Button increase_freq_button;
+    Textbox change_frequency_instruction_textbox;
+    Button decrease_frequency_button;
+    Button increase_frequency_button;
+
+    Textbox change_amplitude_instruction_textbox;
+    Button decrease_amplitude_button;
+    Button increase_amplitude_button;
 
     Textbox change_mode_instruction_textbox;
     Button change_mode_button;

@@ -60,7 +60,7 @@ typedef struct {
     float trigger_level;         // обычно 0.0
     float last_value;
     Uint32 last_trigger_time_us;
-    float detected_freq_hz;
+    float detected_frequency_hz;
     float detected_period_ms;
 } TriggerDetector;
 
@@ -69,7 +69,7 @@ void trigger_update(TriggerDetector *t, float value, Uint32 time_us) {
         if (t->last_trigger_time_us != 0) {
             float period_us = time_us - t->last_trigger_time_us;
             t->detected_period_ms = period_us / 1000.0f;
-            t->detected_freq_hz = 1000000.0f / period_us;
+            t->detected_frequency_hz = 1000000.0f / period_us;
         }
         t->last_trigger_time_us = time_us;
     }
@@ -382,7 +382,7 @@ void period_render(PeriodBuffer *p, SDL_Rect rect) {
 
 // Ресемплинг (приведение к равномерной сетке)
 typedef struct {
-    float target_freq_hz;       // целевая частота
+    float target_frequency_hz;       // целевая частота
     float accum_time_us;        // накопленное время
     float accum_value;          // накопленное значение
     int accum_count;            // сколько сырых точек усреднено
@@ -390,7 +390,7 @@ typedef struct {
 
 bool resampler_add(Resampler *r, float value, Uint32 time_us, float *out_value) {
     static Uint32 last_time_us = 0;
-    float target_dt_us = 1000000.0f / r->target_freq_hz;
+    float target_dt_us = 1000000.0f / r->target_frequency_hz;
     
     if (last_time_us == 0) {
         last_time_us = time_us;

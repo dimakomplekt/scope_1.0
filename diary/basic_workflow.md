@@ -731,7 +731,7 @@ void add_sample_fixed_rate(Oscilloscope *osc, float value) {
 
 
 typedef struct {
-    float target_freq_hz;     // желаемая частота сэмплирования для отображения
+    float target_frequency_hz;     // желаемая частота сэмплирования для отображения
     float accum_time_ms;      // накопленное время
     float accum_value;        // накопленное значение для усреднения
     int samples_in_accum;     // сколько сырых точек усреднено
@@ -746,7 +746,7 @@ void resampler_add_raw(Resampler *r, Uint32 time_ms, float value) {
     }
     
     float dt_ms = time_ms - last_raw_time;
-    float target_dt_ms = 1000.0f / r->target_freq_hz;
+    float target_dt_ms = 1000.0f / r->target_frequency_hz;
     
     r->accum_time_ms += dt_ms;
     r->accum_value += value;

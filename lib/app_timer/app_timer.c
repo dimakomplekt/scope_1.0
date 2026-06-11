@@ -31,9 +31,9 @@ void app_timer_init(void)
 void app_timer_update(void)
 {
     uint64_t now = SDL_GetPerformanceCounter();
-    uint64_t freq = SDL_GetPerformanceFrequency();
+    uint64_t frequency = SDL_GetPerformanceFrequency();
 
-    double dt = (double)(now - App_timer.last_ticks) / (double)freq;
+    double dt = (double)(now - App_timer.last_ticks) / (double)frequency;
 
     App_timer.delta_time = dt;
     App_timer.current_time += dt;
