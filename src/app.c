@@ -3,6 +3,7 @@
 // =========================================================================================== IMPORT
 
 #include "app.h"
+#include <stdio.h>
 
 // =========================================================================================== IMPORT
 
@@ -69,31 +70,26 @@ int SDL_app_init(SDL_app_ctx* app, int w, int h, const char* title)
     if (!app->renderer)
         return 0;
 
-    SDL_SetRenderDrawBlendMode(app->renderer, SDL_BLENDMODE_BLEND);
+        
+    SDL_SetRenderDrawBlendMode(
+        app->renderer,
+        SDL_BLENDMODE_BLEND
+    );
+
+        
+    SDL_BlendMode mode;
+
+    SDL_GetRenderDrawBlendMode(
+        app->renderer,
+        &mode
+    );
+    
+    printf("blend mode = %d\n", mode);
 
     app->running = 1;
     app->name = title;
 
     GI_init();
-
-    // btn.x = 400;
-    // btn.y = 300;
-    // btn.w = 50;
-    // btn.h = 50;
-    // btn.radius = 25;
-    // btn.border_thickness = 5;
-    // btn.idle_color = hex_to_sdl_color("#0214db", 255);
-    // btn.hover_color = hex_to_sdl_color("#ff4920", 255);
-    // btn.pressed_color = hex_to_sdl_color("#a7f109", 255);
-    // btn.border_color = hex_to_sdl_color("#0080ff", 255);
-    // btn.down_inside = false;
-// 
-    // btn.on_click = test_click;
-// 
-    // tbx = Textbox_init(hex_to_sdl_color("#06e951", 255), 24);
-    // tbx->x = 800;
-    // tbx->y = 800;
-    // Textbox_set_content(tbx, "HELLO TTF ON C");
 
 
     scope_init(&scope_1, app->renderer);

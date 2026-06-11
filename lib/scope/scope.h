@@ -193,7 +193,7 @@ typedef struct scope_gui_basic_parameters
 
     SDL_Color background_border_color_1;
 
-    int background_border_thicknes_1;
+    int background_border_thickness_1;
 
 
     // Средняя часть
@@ -208,7 +208,7 @@ typedef struct scope_gui_basic_parameters
 
     SDL_Color background_border_color_2;
 
-    int background_border_thicknes_2;
+    int background_border_thickness_2;
 
 
     // Нижняя часть
@@ -223,7 +223,7 @@ typedef struct scope_gui_basic_parameters
 
     SDL_Color background_border_color_3;
 
-    int background_border_thicknes_3;
+    int background_border_thickness_3;
 
 
     // ===== Дисплей =====
@@ -238,14 +238,14 @@ typedef struct scope_gui_basic_parameters
 
     SDL_Color display_border_color;
 
-    int display_border_thicknes;
+    int display_border_thickness;
 
 
     // ===== Сетка =====
 
     // 8 горизонтальных линий + 16 вертикальных линий для сетки
 
-    int lines_thicknes;
+    int lines_thickness;
 
     // H Line 1
 
@@ -550,7 +550,7 @@ typedef struct scope_gui_basic_parameters
 
     SDL_Color value_scale_set_info_border_color_1;
 
-    int value_scale_set_info_border_thicknes_1;
+    int value_scale_set_info_border_thickness_1;
 
     // Координаты кнопки уменьшения масштаба сигнала
     
@@ -575,7 +575,7 @@ typedef struct scope_gui_basic_parameters
 
     SDL_Color time_scale_set_info_border_color_1;
 
-    int time_scale_set_info_border_thicknes_1;
+    int time_scale_set_info_border_thickness_1;
 
 
     // Координаты кнопки уменьшения масштаба времени
@@ -600,7 +600,7 @@ typedef struct scope_gui_basic_parameters
 
     SDL_Color amplitude_set_info_border_color_1;
 
-    int amplitude_set_info_border_thicknes_1;
+    int amplitude_set_info_border_thickness_1;
 
 
     // Координаты кнопки уменьшения сигнала
@@ -625,7 +625,7 @@ typedef struct scope_gui_basic_parameters
 
     SDL_Color frequency_set_info_border_color_1;
 
-    int frequency_set_info_border_thicknes_1;
+    int frequency_set_info_border_thickness_1;
 
 
     // Координаты кнопки уменьшения частоты 
@@ -672,7 +672,7 @@ typedef struct scope_gui_basic_parameters
 
     SDL_Color signal_scale_info_border_color_1;
 
-    int signal_scale_info_border_thicknes_1;
+    int signal_scale_info_border_thickness_1;
 
 
     // Прямоугольник для масштаба времени
@@ -687,7 +687,7 @@ typedef struct scope_gui_basic_parameters
 
     SDL_Color time_scale_info_border_color_1;
 
-    int time_scale_info_border_thicknes_1;
+    int time_scale_info_border_thickness_1;
 
 
     // Прямоугольник для амплитуды сигнала
@@ -702,7 +702,7 @@ typedef struct scope_gui_basic_parameters
 
     SDL_Color amplitude_info_border_color_1;
 
-    int amplitude_info_border_thicknes_1;
+    int amplitude_info_border_thickness_1;
 
 
 
@@ -718,7 +718,7 @@ typedef struct scope_gui_basic_parameters
 
     SDL_Color frequency_info_border_color_1;
 
-    int frequency_info_border_thicknes_1;
+    int frequency_info_border_thickness_1;
 
 
 } scope_gui_basic_parameters;
@@ -745,8 +745,8 @@ typedef struct scope_render {
     SDL_Color main_color_5;         // Pale color                       = hex_to_sdl_color("#313131", 150);
 
 
-    int basic_border_thicknes_1;
-    int basic_border_thicknes_2;
+    int basic_border_thickness_1;
+    int basic_border_thickness_2;
 
     int basic_pixels_quantity_in_equivalent_unit;
 
