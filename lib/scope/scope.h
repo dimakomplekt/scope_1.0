@@ -142,6 +142,8 @@ typedef struct scope_gui_basic_parameters
             - Поясняющий блок (прямоугольник + текстбокс) для масштаба времени (или кол-ва периодов в режиме 2) - 2 на 1 единицу (x - по уровню вертикальной линии сетки номер 7, верхний край - с отступом в 1 единицу от нижнего края экрана)
             - Вычисленная амплитуда сигнала (прямоугольник + текстбокс) - 2 на 1 единицу (x - по уровню вертикальной линии сетки номер 11, верхний край - с отступом в 1 единицу от нижнего края экрана)
             - Вычисленная частота сигнала (или период в режиме 2) (прямоугольник + текстбокс) - 2 на 1 единицу (x - по уровню вертикальной линии сетки номер 15, верхний край - с отступом в 1 единицу от нижнего края экрана)
+
+            UPD: в итоге добавилась пара других кнопок и элементов, но суть похожая, переписывать коммент-пояснялку лень
         */
 
 
@@ -638,7 +640,6 @@ typedef struct scope_gui_basic_parameters
     int frequency_increase_button_y_1;
 
 
-
     // Координаты кнопки смены сигнала
 
     int signal_change_button_x_1;
@@ -650,8 +651,8 @@ typedef struct scope_gui_basic_parameters
     
 
     // Координаты кнопки воспроизведения сигнала
-    int signal_play_button_x_1;
-    int signal_play_button_y_1;
+    int controlled_signal_play_button_x_1;
+    int controlled_signal_play_button_y_1;
 
 
     // Координаты кнопки включения / выключения
@@ -659,67 +660,45 @@ typedef struct scope_gui_basic_parameters
     int scope_on_off_button_y_1;
 
 
+    // ===== Информационный дисплей =====
 
-    // Прямоугольник для показа масштаба сигнала
+    // Координаты и габариты
+    int scope_info_zone_display_x_1;
+    int scope_info_zone_display_y_1;
+
+    int scope_info_zone_display_w_1;
+    int scope_info_zone_display_h_1;
+
+    // Цвета наследуются от основного экрана
+
+
+    // Текстбокс для показа масштаба сигнала
 
     int signal_scale_info_x_1;
     int signal_scale_info_y_1;
 
-    int signal_scale_info_w_1;
-    int signal_scale_info_h_1;
-
     SDL_Color signal_scale_info_fill_color_1;
 
-    SDL_Color signal_scale_info_border_color_1;
-
-    int signal_scale_info_border_thickness_1;
-
-
-    // Прямоугольник для масштаба времени
+    // Текстбокс для масштаба времени
 
     int time_scale_info_x_1;
     int time_scale_info_y_1;
 
-    int time_scale_info_w_1;
-    int time_scale_info_h_1;
-
     SDL_Color time_scale_info_fill_color_1;
 
-    SDL_Color time_scale_info_border_color_1;
-
-    int time_scale_info_border_thickness_1;
-
-
-    // Прямоугольник для амплитуды сигнала
+    // Текстбокс для амплитуды сигнала
 
     int amplitude_info_x_1;
     int amplitude_info_y_1;
 
-    int amplitude_info_w_1;
-    int amplitude_info_h_1;
-
     SDL_Color amplitude_info_fill_color_1;
 
-    SDL_Color amplitude_info_border_color_1;
-
-    int amplitude_info_border_thickness_1;
-
-
-
-    // Прямоугольник для частоты сигнала
+    // Текстбокс для частоты сигнала
 
     int frequency_info_x_1;
     int frequency_info_y_1;
 
-    int frequency_info_w_1;
-    int frequency_info_h_1;
-
     SDL_Color frequency_info_fill_color_1;
-
-    SDL_Color frequency_info_border_color_1;
-
-    int frequency_info_border_thickness_1;
-
 
 } scope_gui_basic_parameters;
 
@@ -742,7 +721,8 @@ typedef struct scope_render {
     SDL_Color main_color_2;         // Boarders and lines and text      = hex_to_sdl_color("#040500", 255);
     SDL_Color main_color_3;         // Background 2                     = hex_to_sdl_color("#d3e8a6", 255);    
     SDL_Color main_color_4;         // Accent color                     = hex_to_sdl_color("#0d26e4", 255);
-    SDL_Color main_color_5;         // Pale color                       = hex_to_sdl_color("#313131", 150);
+    SDL_Color main_color_5;         // Accent color                     = hex_to_sdl_color("#e63a14", 255);
+    SDL_Color main_color_6;         // Pale color                       = hex_to_sdl_color("#313131", 150);
 
 
     int basic_border_thickness_1;
@@ -768,9 +748,9 @@ typedef struct scope_render {
 
     Textbox signal_scale_textbox;
     Textbox time_scale_textbox;
-    Textbox frequency_textbox;
-    Textbox amplitude_textbox;
 
+    Textbox amplitude_textbox;
+    Textbox frequency_textbox;
 
     // Объекты (кнопки настройки + кнопка смены сигнала)
     Textbox change_value_scale_instruction_textbox;
@@ -794,7 +774,7 @@ typedef struct scope_render {
 
     Button mode_change_button;
 
-    Button signal_play_button;
+    Button controlled_signal_play_button;
 
 
     Button scope_on_off_button;
@@ -861,12 +841,21 @@ typedef struct Scope {
 
 // =========================================================================================== INNER FUNCTIONS
 
+// Инициализация осциллографа
 void scope_init(Scope* used_scope, SDL_Renderer* renderer);
 
+// Присвоение сигнала осциллографу (сеттер)
 void signal_check(Scope* used_scope, sin_generator_ctx* controlled_signal);
 
+
+// Апдейт буффера с макс. скоростью
+void scope_buffer_update(Scope* used_scope);
+
+// Апдейт общих характериктик системы с частотой в 2-4 раза выше частоты кадров (обеспечивает
+// получение адекватной даты)
 void scope_update(Scope* used_scope);
 
+// Рендер с частотой соотв. текущей частоте кадров
 void scope_render(Scope* used_scope);
 
 
