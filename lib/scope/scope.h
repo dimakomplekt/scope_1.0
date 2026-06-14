@@ -22,18 +22,27 @@
 // ===== Buffer type =====
 
 #define BUFFER_SIZE 60000
+#define SCOPE_SAMPLE_RATE 48000
+#define MAX_ZERO_CROSSINGS_TO_CHECK 16
 
 // Кольцевой буфер - пишем всегда в head, при переполнении начинаем перезаписывать старую дату, чтение
 // производим для элементов, которые стоят до head (в случае переполнения при переходе head в [0] и 
 // чтении [head - 1] получим чтение head[BUFFER_SIZE]) соотв. дата всегда будет адекватной без необходимости
 // производить сдвиги значений
 
+
+typedef struct sample {
+
+    float value;       // Значение сигнала
+    double time;       // Время приёма сигнала
+    double delta_t;    // Разница между временем приёма текущего сигнала и прошлого
+
+} sample_t;
+
+
 typedef struct scope_buffer {
 
-    int32_t timestamps[BUFFER_SIZE];               // Времена сигналов
-
-    // TODO: FLOAT OR X1000 ect..
-    int16_t samples_values[BUFFER_SIZE];           // Значения сигналов
+    sample_t samples[BUFFER_SIZE];
 
     int head;                                      // Текущий индекс (для записи и чтения)
     int count;                                     // Счётчик (для контроля переполнений)
@@ -43,29 +52,35 @@ typedef struct scope_buffer {
 
 // ===== Scope mode enum =====
 
-
 typedef enum scope_state
 {
     
     OFF_SS,
     ON_SS,
+
     LIMIT_SS
 
 } scope_state;
 
-typedef enum scope_mode
+
+typedef enum scope_render_mode
 {
 
-    SCOPE_MODE_SCROLL_TO_LEFT,
-    SCOPE_MODE_N_PERIODS
+    SCOPE_MODE_FIXED_TIME_STEP_SRM,
+    SCOPE_MODE_SCROLL_TO_LEFT_SRM,
+    SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM,
 
-} scope_mode_en;
+    LIMIT_SRM
+
+} scope_render_mode;
 
 
 typedef enum signal_units
 {
 
-    VOLTS
+    VOLTS_SU,
+    
+    LIMIT_SU
 
 } signal_units;
 
@@ -74,12 +89,44 @@ typedef enum signal_units
 typedef enum time_units
 {
 
-    NANOSECONDS,
-    MICROSECONDS,
-    MILLISECONDS,
-    SECONDS
+    NANOSECONDS_TU,
+    MICROSECONDS_TU,
+    MILLISECONDS_TU,
+    SECONDS_TU,
+
+    LIMIT_TU
     
 } time_units;
+
+
+typedef enum controlled_signal_type
+{
+
+    CLEAN_CST,
+    NOISED_CST,
+    
+    LIMIT_CST
+    
+} controlled_signal_type;
+
+
+typedef struct signal_render_point
+{
+
+    int x;
+    int y;
+    bool show;
+
+} signal_render_point;
+
+
+typedef struct signal_render_ctx
+{
+
+    signal_render_point* points;  // динамический массив
+    int size;                     // сколько точек (ширина дисплея)
+
+} signal_render_ctx;
 
 
 // ===== Scope render data =====
@@ -740,7 +787,7 @@ typedef struct scope_render {
 
 
     scope_gui_basic_parameters gui_parameters;                      // Данные для рендера фигур (в данной версии - задник, дисплей, сетка)
-
+    signal_render_ctx signal_render_data;
 
     // Объекты (текстовые блоки)
     Textbox scope_signature_textbox;
@@ -789,7 +836,7 @@ typedef struct scope_main_settings
     // Глобальные настройки
     scope_state current_state;                      // Текущий режим
     
-    scope_mode_en current_mode;                     // Режим
+    scope_render_mode current_mode;                 // Режим
 
     int periods_to_display;                         // Количество периодов для отображения (в режиме с фикс. кол-вом)
 
@@ -803,19 +850,17 @@ typedef struct scope_main_settings
 typedef struct scope_signal_control_ctx
 {
 
-    sin_generator_ctx* controlled_signal;           // Контролируемый сигнал (в данной версии - только синус)
+    sin_generator_ctx* controlled_signal;                   // Контролируемый сигнал (в данной версии - только синус)
+    controlled_signal_type type_of_controlled_signal;       // Какой вид сигнала контролируем сейчас
 
-    scope_buffer_ctx scope_buffer_data;             // Буфер осциллографа
+    scope_buffer_ctx scope_buffer_data;                     // Буфер осциллографа
 
     // ==== Анализ сигнала для рескейла дисплея в моде с фикс. кол-вом периодов ====
 
-    // Данные о периоде
+    // Текущие данные о сигнале
+
     int current_period_value;
     int current_frequency_value;
-
-    // TODO!!!
-    int zero_crossing_timestamps;
-
 
     int current_max_signal_value;
     int current_min_signal_value;
@@ -844,6 +889,7 @@ typedef struct Scope {
 // Инициализация осциллографа
 void scope_init(Scope* used_scope, SDL_Renderer* renderer);
 
+
 // Присвоение сигнала осциллографу (сеттер)
 void signal_check(Scope* used_scope, sin_generator_ctx* controlled_signal);
 
@@ -851,11 +897,16 @@ void signal_check(Scope* used_scope, sin_generator_ctx* controlled_signal);
 // Апдейт буффера с макс. скоростью
 void scope_buffer_update(Scope* used_scope);
 
+// Анализ буфера осциллографа для получения основной информации о сигнале - частота 240 Гц
+void buffer_analysis(Scope* used_scope);
+
+
 // Апдейт общих характериктик системы с частотой в 2-4 раза выше частоты кадров (обеспечивает
-// получение адекватной даты)
+// получение адекватной даты) - частота 60 Гц
 void scope_update(Scope* used_scope);
 
-// Рендер с частотой соотв. текущей частоте кадров
+
+// Рендер с частотой соотв. текущей частоте кадров - частота 60 Гц
 void scope_render(Scope* used_scope);
 
 
@@ -864,7 +915,6 @@ void scope_render(Scope* used_scope);
 // присоединяю к нему сигнал, на update() осциллографа я получаю текущее значение сигнала и значение 
 // тиков, на котором это время было снято и запихиваю оба значения в кольцевой буфер. На рендере я в
 // зависимости от настроек масштабов развертки отрисовываю внутри дисплея нужный кусок буфера
-
 
 void scope_destroy(Scope* used_scope);
 

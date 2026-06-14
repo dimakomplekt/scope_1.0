@@ -13,6 +13,10 @@
 
 #include "../../src/global_data.h"
 
+#include <math.h>
+
+#include <float.h>
+
 // =========================================================================================== IMPORT
 
 
@@ -20,16 +24,23 @@
 
 // =========================================================================================== Helper-functions predeclare
 
-void scope_buffer_init(Scope* used_scope);                          // Инициализация буфера осциллографа
+void scope_buffer_init(Scope* used_scope);                          // Инициализация буфера осциллографа ДИНАМИЧЕСКОЕ ВЫДЕЛЕНИЕ !!!
 
 void scope_gui_init(Scope* used_scope, SDL_Renderer* renderer);     // Инициализация графики осциллографа
 void scope_gui_renew(Scope* used_scope);                            // Обновление графики осциллографа
+
+void scope_screen_gui_init(Scope* used_scope);                     // Обновление графики экрана осциллографа ДИНАМИЧЕСКОЕ ВЫДЕЛЕНИЕ !!!
+void scope_screen_gui_delete(Scope* used_scope);                   // Удаление буффера текущей отрисовки (при рескейле может понадобится)
+
+void scope_find_period(Scope* used_scope);
+void scope_find_amplitude(Scope* used_scope);
+void scope_screen_gui_renew(Scope* used_scope);                    // Обновление данных для рендера сигнала 
+
+
 void scope_signal_info_gui_renew(Scope* used_scope);                // Обновление текстбоксов в дисплее информации
 void scope_display_animation(Scope* used_scope);                    // Расчёт анимации мерцания дисплеев
 
-void buffer_clear(Scope* used_scope);                               // Очистка данных буффера при выключении
-
-void buffer_analysis(Scope* used_scope);                            // Анализ буфера осциллографа для получения основной информации о сигнале
+void scope_buffer_clear(Scope* used_scope);                          // Очистка данных буффера при выключении
 
 
 // Buttons callbacks
@@ -68,11 +79,12 @@ void scope_init(Scope* used_scope, SDL_Renderer* renderer)
     // Main data init
 
     used_scope->main_settings.current_state = OFF_SS;
-    used_scope->main_settings.current_mode = SCOPE_MODE_SCROLL_TO_LEFT;     // Базово - скролл (синус инициируется низкочастотным)
-    used_scope->main_settings.periods_to_display = 2;                       // Базово - 2 периода для отображения (в режиме с фикс. кол-вом)
-    used_scope->main_settings.current_signal_units  = VOLTS;                // Базово - вольты 
-    used_scope->main_settings.current_time_units = MICROSECONDS;            // Базово - микросекунды
+    used_scope->main_settings.current_mode = SCOPE_MODE_SCROLL_TO_LEFT_SRM;     // Базово - скролл (синус инициируется низкочастотным)
+    used_scope->main_settings.periods_to_display = 2;                           // Базово - 2 периода для отображения (в режиме с фикс. кол-вом)
+    used_scope->main_settings.current_signal_units  = VOLTS_SU;                 // Базово - вольты 
+    used_scope->main_settings.current_time_units = MICROSECONDS_TU;             // Базово - микросекунды
 
+    // Инициализация буффера
     scope_buffer_init(used_scope);
 
     // No signal at the start
@@ -81,12 +93,209 @@ void scope_init(Scope* used_scope, SDL_Renderer* renderer)
     // GUI init and instant renew to setup
     scope_gui_init(used_scope, renderer);
     scope_gui_renew(used_scope);
+    scope_screen_gui_init(Scope* used_scope);
 }
 
 
 void signal_check(Scope* used_scope, sin_generator_ctx* controlled_signal)
 {
-    //
+    // Подключаем сигнал к осциллографу
+    if (!used_scope) return;
+    if (!controlled_signal) return;
+
+    used_scope->signal_control_data.controlled_signal = controlled_signal;
+    used_scope->signal_control_data.type_of_controlled_signal = CLEAN_CST;
+}
+
+
+// Апдейт буффера с макс. скоростью
+void scope_buffer_update(Scope* used_scope)
+{
+    if (!used_scope) return;
+
+    scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
+    scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
+
+    if (!ctrl->controlled_signal) return;
+
+    // Ничего не делаем, если выключен
+    if (used_scope->main_settings.current_state == OFF_SS) return;
+
+    // ===== Получение значений =====
+    
+
+    // Текущее время - точно совпадёт со временем, которое было принято на 
+    // генерацию значения сигнала
+    double t = app_timer_get_time();
+
+    // Выбор сигнала 
+    float value = 0.0f;
+
+    switch (ctrl->type_of_controlled_signal)
+    {
+        case CLEAN_CST:
+            value = sin_generator_get_clean();
+            break;
+
+        case NOISED_CST:
+            value = sin_generator_get_noise();
+            break;
+
+        default:
+            value = 0.0f;
+            break;
+    }
+
+
+    // ===== Заполнение буффера =====
+
+    int head = buffer->head;
+
+    // Предыдущее значение с зашитой от ошибки 1 шага
+    int prev = head - 1;
+    if (prev < 0)
+        prev = BUFFER_SIZE - 1;
+
+    buffer->samples[head].value = value;
+    buffer->samples[head].time = t;
+
+    if (buffer->count > 0)
+    {
+        double dt = t - buffer->samples[prev].time;
+
+        // 1 сек условный clamp
+        if (dt < 0 || dt > 1.0) dt = 0.0;
+
+        // Первый сэмпл после прохода через кольцо, или любой другой
+        buffer->samples[head].delta_t = dt;
+    }
+    else
+    {
+        // Первый сэмпл после init
+        buffer->samples[head].delta_t = 0.0;
+    }
+    
+
+    // update ring buffer
+    buffer->head = (head + 1) % BUFFER_SIZE;
+
+    if (buffer->count < BUFFER_SIZE) buffer->count++;
+}
+
+
+void buffer_analysis(Scope* used_scope)
+{
+
+    /*
+        3 вида показа typedef enum scope_state { OFF_SS, ON_SS, LIMIT_SS } scope_state; 
+        
+        typedef enum scope_render_mode 
+        { SCOPE_MODE_FIXED_TIME_STEP_SRM, 
+         SCOPE_MODE_SCROLL_TO_LEFT_SRM, 
+         SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM, 
+         LIMIT_SRM } scope_render_mode; 
+         
+         typedef enum signal_units { VOLTS_SU, LIMIT_SU } 
+         
+         signal_units; typedef enum time_units { NANOSECONDS_TU, MICROSECONDS_TU, MILLISECONDS_TU, SECONDS_TU, LIMIT_TU } time_units; 
+         первично на ините выставлен первый мод такой void scope_init(Scope* used_scope, SDL_Renderer* renderer)
+          { // Main data init used_scope->main_settings.current_state = OFF_SS; 
+           used_scope->main_settings.current_mode = SCOPE_MODE_SCROLL_TO_LEFT_SRM; 
+           // Базово - скролл (синус инициируется низкочастотным) used_scope->main_settings.periods_to_display = 2; 
+           // Базово - 2 периода для отображения (в режиме с фикс. кол-вом) 
+           used_scope->main_settings.current_signal_units = VOLTS_SU; // Базово - вольты 
+           used_scope->main_settings.current_time_units = MICROSECONDS_TU; // Базово - микросекунды 
+           
+           у меня есть функция которая коллится в 4 раза чаще рендера void buffer_analysis(Scope* used_scope) 
+           { if (used_scope->main_settings.current_state == ON_SS) 
+            { // Анализируем буффер - смотрим на последнюю полученную дату в буффере и фиксируем характеристики
+              // сигнала там же присваиваем новый content текстбоксам характеристики 
+              // Find period } } в ней можно по буфферу найти каким-то неводомым мне образом основные параметры
+               сигнала и записать их в 
+               
+               typedef struct scope_signal_control_ctx { sin_generator_ctx* controlled_signal; // Контролируемый сигнал (в данной версии 
+               - только синус) 
+               
+               controlled_signal_type type_of_controlled_signal; // Какой вид сигнала контролируем сейчас 
+               scope_buffer_ctx scope_buffer_data; // Буфер осциллографа 
+               
+               // ==== Анализ сигнала для рескейла дисплея в моде с фикс. кол-вом периодов ==== 
+               
+               // Текущие данные о сигнале 
+               int current_period_value; 
+               int current_frequency_value; 
+               int current_max_signal_value; 
+               int current_min_signal_value; } scope_signal_control_ctx; 
+               
+               а дальше подготовить по текущим флагам из 
+               
+               typedef struct scope_main_settings { 
+               
+               // Глобальные настройки scope_state current_state; 
+               // Текущий режим scope_render_mode current_mode; 
+               // Режим int periods_to_display; // Количество периодов для отображения (в режиме с фикс. кол-вом) 
+               // Текущие единицы измерения для отображения 
+               signal_units current_signal_units; 
+               time_units current_time_units; } scope_main_settings_ctx; 
+               
+               и текущему буфферу (пользуясь требуемым количеством последних значений под дисплей) зная, 
+               что у меня дисплей с размерами 
+               
+               used_scope->scope_render_data.gui_parameters.display_w 
+               used_scope->scope_render_data.gui_parameters.display_h 
+               
+               центр которого сидит в точке 
+               
+               used_scope->scope_render_data.gui_parameters.display_x 
+               used_scope->scope_render_data.gui_parameters.display_y 
+               
+               подготовить по текущему масштабу одной клетки размером (такая же и по x - время и по y - значение оси) 
+               used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit 
+               Какой-то signal_render_ctx 
+               с 
+               signal_render_points[used_scope->scope_render_data.gui_parameters.display_w] 
+               
+               int x; 
+               int y; 
+               bool show 
+               
+               который я потом отрисую через итератор по этому контексту и команду 
+               
+               void my_sdl_draw_pixel( SDL_Renderer* renderer, int x, int y, SDL_Color color ) 
+               
+               { SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a); 
+                SDL_RenderDrawPoint(renderer, x, y); }
+                
+                может быть даже через несколько команд (типо ещё сверху и снизу рисовать n пикселей 
+                для толстой линии сигнала сдвигом по y)
+    
+    */
+    if (!used_scope) return;
+
+    if (used_scope->main_settings.current_state != ON_SS) return;
+
+
+    scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
+    scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
+
+    // Мин. кол-во даты для анализа
+
+    bool update_data_skip_flag = true;
+    if (buffer->count > 2) update_data_skip_flag = false;
+
+    if (!update_data_skip_flag)
+    {
+
+        // Вычисляем период и частоту пользуясь буффером через усреднение (через n времен между проходами через 0)
+        scope_find_period(used_scope);
+
+        // Вычисляем минимум и максимум через усреднение то же количество минимумов и максимумов
+        scope_find_amplitude(used_scope);
+    }
+
+    // Обновляем графику под рендер (даже для первых точек)
+    scope_screen_gui_renew(used_scope);
+
 }
 
 
@@ -135,17 +344,8 @@ void scope_update(Scope* used_scope)
 
     // Текущие текстбоксы информации о сигнале и апдейт буфера
 
-    if (used_scope->main_settings.current_state == OFF_SS)
-    {
-        // Очистка при выключении
-        buffer_clear(used_scope);
-    }
-
     if (used_scope->main_settings.current_state == ON_SS)
     {
-        // Анализируем буффер - смотрим на последнюю полученную дату в буффере и фиксируем характеристики
-        // сигнала там же присваиваем новый content текстбоксам характеристики
-        buffer_analysis(used_scope);
 
         // Обновляем текстбоксы для получения нового content, посчитанного при buffer_analysis(used_scope);
         Textbox_update(&used_scope->scope_render_data.signal_scale_textbox, used_scope->scope_render_data.renderer);
@@ -161,15 +361,6 @@ void scope_update(Scope* used_scope)
     scope_display_animation(used_scope);
 }
 
-
-void scope_buffer_update(Scope* used_scope)
-{
-    // Никаких действий при выключенном осциллографе 
-    if (used_scope->main_settings.current_state == OFF_SS) return;
-
-    // Получение даты от сигнала при включенном осциллографе
-
-}
 
 
 void scope_render(Scope* used_scope)
@@ -711,7 +902,20 @@ void scope_render(Scope* used_scope)
 
 void scope_destroy(Scope* used_scope)
 {
+    if (!used_scope) return;
 
+    // ===== 1. сигнал рендера =====
+    scope_screen_gui_delete(used_scope);
+
+    // ===== 2. UI элементы (если у них есть destroy) =====
+
+
+    // ===== 3. буфер =====
+    // НЕ НУЖНО free — он static array внутри struct
+    // но можно “обнулить состояние”
+
+    used_scope->signal_control_data.scope_buffer_data.head = 0;
+    used_scope->signal_control_data.scope_buffer_data.count = 0;
 }
 
 // =========================================================================================== API
@@ -720,23 +924,11 @@ void scope_destroy(Scope* used_scope)
 // =========================================================================================== HELPER-FUNCTIONS
 
 
-
 void scope_buffer_init(Scope* used_scope)
 {
-    /*
-
-    Очистить массивы времён и значений (не обязательно для работы кольцевого буфера, но удобно для отладки).
-
-    Установить head = 0 — первая запись пойдёт в начало массива.
-
-    Установить count = 0 — данных пока нет.
-
-    */
-
     scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
 
-    memset(buffer->timestamps, 0, sizeof(buffer->timestamps));
-    memset(buffer->samples_values, 0, sizeof(buffer->samples_values));
+    memset(buffer->samples, 0, sizeof(buffer->samples));
 
     buffer->head = 0;
     buffer->count = 0;
@@ -752,7 +944,6 @@ void scope_gui_init(Scope* used_scope, SDL_Renderer* renderer)
     // Строим осциллограф по сетке, используя 50 пикселей на единицу сетки 
     used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit = 50;
 
-
     // Colors
     used_scope->scope_render_data.main_color_1 = hex_to_sdl_color("#a7f109", 255);
     used_scope->scope_render_data.main_color_2 = hex_to_sdl_color("#040500", 255);
@@ -760,6 +951,7 @@ void scope_gui_init(Scope* used_scope, SDL_Renderer* renderer)
     used_scope->scope_render_data.main_color_4 = hex_to_sdl_color("#0d26e4", 255);
     used_scope->scope_render_data.main_color_5 = hex_to_sdl_color("#e63a14", 255);
     used_scope->scope_render_data.main_color_6 = hex_to_sdl_color("#313131", 220);
+
 
     used_scope->scope_render_data.basic_border_thickness_1 = 5; // (50 / used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit);
     used_scope->scope_render_data.basic_border_thickness_2 = 5; // (50 / used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit);
@@ -822,7 +1014,7 @@ void scope_gui_renew(Scope* used_scope)
 
 
     // BG 2 - основной задник, на котором располагается дисплей и кнопки - сидит по центру
-
+  
     used_scope->scope_render_data.gui_parameters.background_x_2 = used_scope->scope_render_data.x_position;
     used_scope->scope_render_data.gui_parameters.background_y_2 = used_scope->scope_render_data.y_position;
 
@@ -874,7 +1066,7 @@ void scope_gui_renew(Scope* used_scope)
     Textbox_set_content(&used_scope->scope_render_data.scope_signature_textbox, "S C O P E                                                    ");
 
 
-    // BG 2 - нижний задник
+    // BG 3 - нижний задник
 
     used_scope->scope_render_data.gui_parameters.background_x_3 = used_scope->scope_render_data.x_position;
 
@@ -1899,16 +2091,169 @@ void scope_display_animation(Scope* used_scope)
 }
 
 
-void buffer_clear(Scope* used_scope)
+void scope_screen_gui_init(Scope* used_scope)
 {
+    int w = used_scope->scope_render_data.gui_parameters.display_w;
+
+    used_scope->scope_render_data.signal_render_data.points = malloc(sizeof(signal_render_point) * w);
+
+    used_scope->scope_render_data.signal_render_data.size = w;
+}
+
+
+void scope_screen_gui_delete(Scope* used_scope)
+{
+    if (!used_scope) return;
+
+    if (used_scope->scope_render_data.signal_render_data.points)
+    {
+        free(used_scope->scope_render_data.signal_render_data.points);
+        used_scope->scope_render_data.signal_render_data.points = NULL;
+    }
+
+    used_scope->scope_render_data.signal_render_data.size = 0;
 
 }
 
 
-void buffer_analysis(Scope* used_scope)
+void scope_find_period(Scope* used_scope)
 {
+    //signal crosses zero when:
+    //prev.value < 0 && curr.value >= 0
+    //(можно добавить hysteresis позже)
 
+    scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
+    scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
+
+    if (buffer->count < 4) return;
+
+    double crossings[MAX_ZERO_CROSSINGS_TO_CHECK];
+
+    int found = 0;
+
+    int head = buffer->head;
+
+    // идём назад по кольцу
+    for (int i = 0; i < buffer->count - 1 && found < MAX_ZERO_CROSSINGS_TO_CHECK; i++)
+    {
+        int curr_idx = (head - i - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+        int prev_idx = (head - i - 2 + BUFFER_SIZE) % BUFFER_SIZE;
+
+        float curr = buffer->samples[curr_idx].value;
+        float prev = buffer->samples[prev_idx].value;
+
+        // zero crossing вверх
+        if (prev < 0.0f && curr >= 0.0f)
+        {
+            crossings[found] = buffer->samples[curr_idx].time;
+            found++;
+        }
+    }
+
+    if (found < 2) return;
+
+    // сортировка не нужна — мы шли назад, значит они уже по времени DESC
+
+    double periods[MAX_ZERO_CROSSINGS_TO_CHECK];
+    int pcount = 0;
+
+    // берём разницы между каждыми 2 crossing (2 crossing = 1 период)
+    for (int i = 0; i < found - 2 && pcount < MAX_ZERO_CROSSINGS_TO_CHECK; i += 2)
+    {
+        double T = crossings[i] - crossings[i + 2];
+
+        if (T > 0.0 && T < 10.0) // защита от мусора
+        {
+            periods[pcount++] = T;
+        }
+    }
+
+    if (pcount == 0) return;
+
+    double sum = 0.0;
+    for (int i = 0; i < pcount; i++) sum += periods[i];
+
+    double avg_T = sum / pcount;
+
+    ctrl->current_frequency_value = (int)(1.0 / avg_T);     // Hz
+    ctrl->current_period_value = avg_T;                     // Seconds
 }
+
+
+
+void scope_find_amplitude(Scope* used_scope)
+{
+    scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
+    scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
+
+    if (buffer->count < 4) return;
+
+    if (ctrl->current_frequency_value <= 0) return;
+
+    int head = buffer->head;
+
+    // ===== 1. окно через уже найденный период =====
+
+    double freq = (double)ctrl->current_frequency_value;
+
+    int samples_per_period = (int)(SCOPE_SAMPLE_RATE / freq);
+    int window_size = samples_per_period * 3; // 3 периода
+
+    if (window_size < 10) window_size = 10;
+
+    if (window_size > buffer->count) window_size = buffer->count;
+
+    // ===== 2. границы окна =====
+
+    int start = (head - window_size + BUFFER_SIZE) % BUFFER_SIZE;
+    int end   = (head - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+
+    // ===== 3. min/max =====
+
+    float min_v = FLT_MAX;
+    float max_v = -FLT_MAX;
+
+    int i = start;
+
+    while (1)
+    {
+        float v = buffer->samples[i].value;
+
+        if (v < min_v) min_v = v;
+        if (v > max_v) max_v = v;
+
+        if (i == end)
+            break;
+
+        i = (i + 1) % BUFFER_SIZE;
+    }
+
+    ctrl->current_min_signal_value = (int)min_v;
+    ctrl->current_max_signal_value = (int)max_v;
+}
+
+
+void scope_screen_gui_renew(Scope* used_scope)
+{
+    // Апдейт структуры скрина, исходя из флагов состояния осциллографа.
+}
+
+
+
+void scope_buffer_clear(Scope* used_scope)
+{
+    if (!used_scope) return;
+
+    scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
+
+    buffer->head = 0;
+    buffer->count = 0;
+
+    // необязательно, но очень полезно для дебага
+    memset(buffer->samples, 0, sizeof(buffer->samples));
+}
+
+
 
 // =========================================================================================== HELPER-FUNCTIONS
 
@@ -2019,6 +2364,7 @@ void on_off_command(Button* btn)
     }
     else 
     {
+        scope_buffer_clear(used_scope);
         used_scope->scope_render_data.scope_on_off_button.pressed_color = used_scope->scope_render_data.main_color_5;
     }
 }
