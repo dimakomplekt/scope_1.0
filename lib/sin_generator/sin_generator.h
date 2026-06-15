@@ -23,6 +23,8 @@ typedef struct sin_generator
     float current_clean;
     float current_noise;
 
+    float current_treshold;
+
     int initialized;
 
 } sin_generator_ctx;
@@ -45,5 +47,8 @@ float sin_generator_get_noise(void);
 // optional setters
 void sin_generator_set_amplitude(float a);
 void sin_generator_set_frequency(float f);
+
+
+extern sin_generator_ctx Oscillator_1;
 
 // =========================================================================================== GENERATOR API

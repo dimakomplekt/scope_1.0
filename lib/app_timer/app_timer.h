@@ -41,4 +41,7 @@ double app_timer_get_time(void);
 // получение dt
 double app_timer_get_delta(void);
 
+
+extern app_timer App_timer;
+
 // =========================================================================================== TIMER API

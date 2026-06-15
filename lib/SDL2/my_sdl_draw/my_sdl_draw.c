@@ -22,6 +22,7 @@ static unsigned char hex_pair_to_byte(const char* str)
     return (unsigned char)strtol(buf, NULL, 16);
 }
 
+
 SDL_Color hex_to_sdl_color(const char* hex, Uint8 opacity)
 {
     SDL_Color color = {0, 0, 0, opacity};

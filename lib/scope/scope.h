@@ -21,9 +21,24 @@
 
 // ===== Buffer type =====
 
-#define BUFFER_SIZE 60000
-#define SCOPE_SAMPLE_RATE 48000
-#define MAX_ZERO_CROSSINGS_TO_CHECK 16
+// RAW LVL
+#define SCOPE_SAMPLE_RATE                   48000
+#define MIN_CONTROLLED_PERIOD               2
+#define SCOPE_BUFFER_STOCK                  4
+
+// VIEW LVL
+#define MAX_DISPLAY_WIDTH                   2000
+#define SCOPE_SCREEN_OVERSAMPLING           4
+
+#define MAX_ZERO_CROSSINGS_TO_CHECK         64
+
+#define BUFFER_SIZE                         (SCOPE_SAMPLE_RATE * MIN_CONTROLLED_PERIOD * SCOPE_BUFFER_STOCK)
+#define RENDER_POINTS_BUFFER_SIZE           (MAX_DISPLAY_WIDTH * SCOPE_SCREEN_OVERSAMPLING)
+
+#define FREQ_TO_SEPARATE_MODES_LB           230
+#define FREQ_TO_SEPARATE_MODES_HB           250
+
+#define ZC_THRESHOLD_START_VALUE 0.005f
 
 // Кольцевой буфер - пишем всегда в head, при переполнении начинаем перезаписывать старую дату, чтение
 // производим для элементов, которые стоят до head (в случае переполнения при переходе head в [0] и 
@@ -67,7 +82,7 @@ typedef enum scope_render_mode
 {
 
     SCOPE_MODE_FIXED_TIME_STEP_SRM,
-    SCOPE_MODE_SCROLL_TO_LEFT_SRM,
+    SCOPE_MODE_SCROLL_TO_RIGHT_SRM,
     SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM,
 
     LIMIT_SRM
@@ -99,6 +114,19 @@ typedef enum time_units
 } time_units;
 
 
+typedef enum frequncy_units
+{
+
+    MILLIHERTZ_FU,
+    HERTZ_FU,
+    KILOHERTZ_FU,
+    MEGAHERTZ_FU,
+
+    LIMIT_FU
+    
+} frequncy_units;
+
+
 typedef enum controlled_signal_type
 {
 
@@ -110,6 +138,7 @@ typedef enum controlled_signal_type
 } controlled_signal_type;
 
 
+// RAW → ANALYSIS → VIEW (DISPLAY) → PIXELS
 typedef struct signal_render_point
 {
 
@@ -123,8 +152,8 @@ typedef struct signal_render_point
 typedef struct signal_render_ctx
 {
 
-    signal_render_point* points;  // динамический массив
-    int size;                     // сколько точек (ширина дисплея)
+    signal_render_point points[RENDER_POINTS_BUFFER_SIZE];        // динамический массив
+    int size;                                                     // сколько точек (ширина дисплея)
 
 } signal_render_ctx;
 
@@ -282,6 +311,9 @@ typedef struct scope_gui_basic_parameters
 
     int display_w;
     int display_h;
+
+    int points_to_render_signal;    // Через ширину дисплея и оверсемплинг 
+
 
     SDL_Color display_fill_color;
 
@@ -628,6 +660,7 @@ typedef struct scope_gui_basic_parameters
 
 
     // Координаты кнопки уменьшения масштаба времени
+
     int time_scale_decrease_button_x_1;
     int time_scale_decrease_button_y_1;
     
@@ -742,10 +775,10 @@ typedef struct scope_gui_basic_parameters
 
     // Текстбокс для частоты сигнала
 
-    int frequency_info_x_1;
-    int frequency_info_y_1;
+    int frequency_or_period_info_x_1;
+    int frequency_or_period_info_y_1;
 
-    SDL_Color frequency_info_fill_color_1;
+    SDL_Color frequency_or_period_info_fill_color_1;
 
 } scope_gui_basic_parameters;
 
@@ -797,7 +830,7 @@ typedef struct scope_render {
     Textbox time_scale_textbox;
 
     Textbox amplitude_textbox;
-    Textbox frequency_textbox;
+    Textbox frequency_or_period_textbox;
 
     // Объекты (кнопки настройки + кнопка смены сигнала)
     Textbox change_value_scale_instruction_textbox;
@@ -837,14 +870,33 @@ typedef struct scope_main_settings
     scope_state current_state;                      // Текущий режим
     
     scope_render_mode current_mode;                 // Режим
-
-    int periods_to_display;                         // Количество периодов для отображения (в режиме с фикс. кол-вом)
+    scope_render_mode acessable_modes[3];           // Доступные режимы
 
     // Текущие единицы измерения для отображения
     signal_units current_signal_units;
-    time_units current_time_units;
+    time_units current_time_units;                  // Переменная времени всегда в секундах, но на рендер адекватнее выводить в другом формате
+    frequncy_units current_frequency_units;         // Переменная времени всегда в герцах, но на рендер адекватнее выводить в другом формате
+
+    // Сколько вольт в 1 юните
+    int signal_val_in_one_unit;
+
+    // Сколько времени в 1 юните
+    int time_val_in_one_unit;
+
+    // Количество периодов для отображения на 16 (в режиме с фикс. кол-вом)
+    int periods_to_display;
 
 } scope_main_settings_ctx;
+
+
+typedef struct zero_crossing_ctx
+{
+    double times[MAX_ZERO_CROSSINGS_TO_CHECK];
+
+    int head;
+    int count;
+
+} zero_crossing_ctx;
 
 
 typedef struct scope_signal_control_ctx
@@ -855,15 +907,21 @@ typedef struct scope_signal_control_ctx
 
     scope_buffer_ctx scope_buffer_data;                     // Буфер осциллографа
 
+    zero_crossing_ctx zero_crossings;                       // Буфер проходов через 0 (для поиска периода и амплитуды)
+
     // ==== Анализ сигнала для рескейла дисплея в моде с фикс. кол-вом периодов ====
 
     // Текущие данные о сигнале
 
-    int current_period_value;
-    int current_frequency_value;
+    float current_period_value;
+    float current_frequency_value;
 
-    int current_max_signal_value;
-    int current_min_signal_value;
+    float current_max_signal_value;
+    float current_min_signal_value;
+
+    float amplitude_estimate;                                // Сглаживание для поиска treshold
+    int threshold_update_accumulator;                        // Защита первичного сглаживания
+    bool amplitude_initialized;
 
 } scope_signal_control_ctx;
 
@@ -903,6 +961,10 @@ void buffer_analysis(Scope* used_scope);
 
 // Апдейт общих характериктик системы с частотой в 2-4 раза выше частоты кадров (обеспечивает
 // получение адекватной даты) - частота 60 Гц
+// берёт текущее значение сигнала
+// записывает в кольцевой буфер
+// фиксирует time + delta_t
+// вызывает детектор событий (переход через 0)
 void scope_update(Scope* used_scope);
 
 

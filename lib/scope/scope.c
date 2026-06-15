@@ -17,6 +17,8 @@
 
 #include <float.h>
 
+#include <stdio.h>
+
 // =========================================================================================== IMPORT
 
 
@@ -24,23 +26,33 @@
 
 // =========================================================================================== Helper-functions predeclare
 
-void scope_buffer_init(Scope* used_scope);                          // Инициализация буфера осциллографа ДИНАМИЧЕСКОЕ ВЫДЕЛЕНИЕ !!!
+void zero_crossings_check(Scope* used_scope);                       // Вспомогательная функция внутри void scope_buffer_update(Scope* used_scope);
+void scope_signal_buffer_init(Scope* used_scope);                   // Инициализация буфера осциллографа ДИНАМИЧЕСКОЕ ВЫДЕЛЕНИЕ !!!
+void scope_zero_cross_buffer_init(Scope* used_scope);                      // Инициализация буфера переходов через 0
 
 void scope_gui_init(Scope* used_scope, SDL_Renderer* renderer);     // Инициализация графики осциллографа
 void scope_gui_renew(Scope* used_scope);                            // Обновление графики осциллографа
 
-void scope_screen_gui_init(Scope* used_scope);                     // Обновление графики экрана осциллографа ДИНАМИЧЕСКОЕ ВЫДЕЛЕНИЕ !!!
-void scope_screen_gui_delete(Scope* used_scope);                   // Удаление буффера текущей отрисовки (при рескейле может понадобится)
+void scope_screen_gui_init(Scope* used_scope);                      // Обновление графики экрана осциллографа ДИНАМИЧЕСКОЕ ВЫДЕЛЕНИЕ !!!
+void scope_screen_gui_delete(Scope* used_scope);                    // Удаление буффера текущей отрисовки (при рескейле может понадобится)
 
-void scope_find_period(Scope* used_scope);
-void scope_find_amplitude(Scope* used_scope);
-void scope_screen_gui_renew(Scope* used_scope);                    // Обновление данных для рендера сигнала 
+
+// signal -> O(1)
+// zero crossing -> O(1)
+// period -> O(K), где K = 4–16 событий
+// amplitude -> O(window)
+void scope_find_period(Scope* used_scope);                          // Рассчёт периода
+void scope_find_amplitude(Scope* used_scope);                       // Рассчёт амплитуды
+void scope_screens_gui_renew_by_signal_data(Scope* used_scope);     // Обновление данных для рендера сигнала 
+
+void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data);
 
 
 void scope_signal_info_gui_renew(Scope* used_scope);                // Обновление текстбоксов в дисплее информации
 void scope_display_animation(Scope* used_scope);                    // Расчёт анимации мерцания дисплеев
+void draw_signal(Scope* used_scope, SDL_Renderer* renderer);         // Функция рендеринга сигнала
 
-void scope_buffer_clear(Scope* used_scope);                          // Очистка данных буффера при выключении
+void scope_buffer_clear(Scope* used_scope);                         // Очистка данных буффера при выключении
 
 
 // Buttons callbacks
@@ -79,13 +91,23 @@ void scope_init(Scope* used_scope, SDL_Renderer* renderer)
     // Main data init
 
     used_scope->main_settings.current_state = OFF_SS;
-    used_scope->main_settings.current_mode = SCOPE_MODE_SCROLL_TO_LEFT_SRM;     // Базово - скролл (синус инициируется низкочастотным)
+    used_scope->main_settings.current_mode = SCOPE_MODE_FIXED_TIME_STEP_SRM;     // Базово - скролл (синус инициируется низкочастотным)
+    
+    used_scope->main_settings.acessable_modes[0] = SCOPE_MODE_FIXED_TIME_STEP_SRM;
+    used_scope->main_settings.acessable_modes[1] = SCOPE_MODE_SCROLL_TO_RIGHT_SRM;
+    used_scope->main_settings.acessable_modes[2] = LIMIT_SRM;
+
     used_scope->main_settings.periods_to_display = 2;                           // Базово - 2 периода для отображения (в режиме с фикс. кол-вом)
+    used_scope->main_settings.time_val_in_one_unit = 1;                         // Базово - 1 (режим с фикс. разв)
+    used_scope->main_settings.signal_val_in_one_unit = 1;                       // Базово - 1 (режим с фикс. разв)
+    
     used_scope->main_settings.current_signal_units  = VOLTS_SU;                 // Базово - вольты 
-    used_scope->main_settings.current_time_units = MICROSECONDS_TU;             // Базово - микросекунды
+    used_scope->main_settings.current_time_units = MILLISECONDS_TU;             // Базово - микросекунды (но переменная всегда в секундах)
+    used_scope->main_settings.current_frequency_units = HERTZ_FU;               // Базово - Герцы (но переменная всегда в Герцах)
 
     // Инициализация буффера
-    scope_buffer_init(used_scope);
+    scope_signal_buffer_init(used_scope);
+    scope_zero_cross_buffer_init(used_scope);
 
     // No signal at the start
     used_scope->signal_control_data.controlled_signal = NULL;
@@ -93,7 +115,7 @@ void scope_init(Scope* used_scope, SDL_Renderer* renderer)
     // GUI init and instant renew to setup
     scope_gui_init(used_scope, renderer);
     scope_gui_renew(used_scope);
-    scope_screen_gui_init(Scope* used_scope);
+    scope_screen_gui_init(used_scope);
 }
 
 
@@ -105,12 +127,24 @@ void signal_check(Scope* used_scope, sin_generator_ctx* controlled_signal)
 
     used_scope->signal_control_data.controlled_signal = controlled_signal;
     used_scope->signal_control_data.type_of_controlled_signal = CLEAN_CST;
+
+    used_scope->signal_control_data.controlled_signal->current_treshold = ZC_THRESHOLD_START_VALUE;
+
+    
+    used_scope->signal_control_data.threshold_update_accumulator = 0.0f;
+    used_scope->signal_control_data.amplitude_estimate = 0;
+    used_scope->signal_control_data.amplitude_initialized = false;
 }
 
 
 // Апдейт буффера с макс. скоростью
 void scope_buffer_update(Scope* used_scope)
 {
+    // берёт текущее значение сигнала
+    // записывает в кольцевой буфер
+    // фиксирует time + delta_t
+    // вызывает детектор событий (переход через 0)
+
     if (!used_scope) return;
 
     scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
@@ -180,6 +214,9 @@ void scope_buffer_update(Scope* used_scope)
     buffer->head = (head + 1) % BUFFER_SIZE;
 
     if (buffer->count < BUFFER_SIZE) buffer->count++;
+
+    // Чек пересечений
+    zero_crossings_check(used_scope);
 }
 
 
@@ -191,7 +228,7 @@ void buffer_analysis(Scope* used_scope)
         
         typedef enum scope_render_mode 
         { SCOPE_MODE_FIXED_TIME_STEP_SRM, 
-         SCOPE_MODE_SCROLL_TO_LEFT_SRM, 
+         SCOPE_MODE_SCROLL_TO_RIGHT_SRM, 
          SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM, 
          LIMIT_SRM } scope_render_mode; 
          
@@ -200,7 +237,7 @@ void buffer_analysis(Scope* used_scope)
          signal_units; typedef enum time_units { NANOSECONDS_TU, MICROSECONDS_TU, MILLISECONDS_TU, SECONDS_TU, LIMIT_TU } time_units; 
          первично на ините выставлен первый мод такой void scope_init(Scope* used_scope, SDL_Renderer* renderer)
           { // Main data init used_scope->main_settings.current_state = OFF_SS; 
-           used_scope->main_settings.current_mode = SCOPE_MODE_SCROLL_TO_LEFT_SRM; 
+           used_scope->main_settings.current_mode = SCOPE_MODE_SCROLL_TO_RIGHT_SRM; 
            // Базово - скролл (синус инициируется низкочастотным) used_scope->main_settings.periods_to_display = 2; 
            // Базово - 2 периода для отображения (в режиме с фикс. кол-вом) 
            used_scope->main_settings.current_signal_units = VOLTS_SU; // Базово - вольты 
@@ -263,10 +300,10 @@ void buffer_analysis(Scope* used_scope)
                
                void my_sdl_draw_pixel( SDL_Renderer* renderer, int x, int y, SDL_Color color ) 
                
-               { SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a); 
+               { SDL_SetRenderDrawColor(renderer, color.render_buffer, color.g, color.b, color.a); 
                 SDL_RenderDrawPoint(renderer, x, y); }
                 
-                может быть даже через несколько команд (типо ещё сверху и снизу рисовать n пикселей 
+                может быть даже через несколько команд (типо ещё сверху и снизу рисовать points_to_draw_quantity пикселей 
                 для толстой линии сигнала сдвигом по y)
     
     */
@@ -286,7 +323,7 @@ void buffer_analysis(Scope* used_scope)
     if (!update_data_skip_flag)
     {
 
-        // Вычисляем период и частоту пользуясь буффером через усреднение (через n времен между проходами через 0)
+        // Вычисляем период и частоту пользуясь буффером через усреднение (через points_to_draw_quantity времен между проходами через 0)
         scope_find_period(used_scope);
 
         // Вычисляем минимум и максимум через усреднение то же количество минимумов и максимумов
@@ -294,7 +331,7 @@ void buffer_analysis(Scope* used_scope)
     }
 
     // Обновляем графику под рендер (даже для первых точек)
-    scope_screen_gui_renew(used_scope);
+    // scope_screens_gui_renew_by_signal_data(used_scope);
 
 }
 
@@ -346,13 +383,12 @@ void scope_update(Scope* used_scope)
 
     if (used_scope->main_settings.current_state == ON_SS)
     {
-
         // Обновляем текстбоксы для получения нового content, посчитанного при buffer_analysis(used_scope);
         Textbox_update(&used_scope->scope_render_data.signal_scale_textbox, used_scope->scope_render_data.renderer);
 
         Textbox_update(&used_scope->scope_render_data.time_scale_textbox, used_scope->scope_render_data.renderer);
     
-        Textbox_update(&used_scope->scope_render_data.frequency_textbox, used_scope->scope_render_data.renderer);
+        Textbox_update(&used_scope->scope_render_data.frequency_or_period_textbox, used_scope->scope_render_data.renderer);
     
         Textbox_update(&used_scope->scope_render_data.amplitude_textbox, used_scope->scope_render_data.renderer);
     }
@@ -787,12 +823,26 @@ void scope_render(Scope* used_scope)
         );
 
 
+        // Обновляем графику под рендер (даже для первых точек)
+        scope_screens_gui_renew_by_signal_data(used_scope);
+
+        // Заполняемся точками
+        signal_render_ctx* sig;
+
+        sig = &used_scope->scope_render_data.signal_render_data;
+
+        build_fixed_time_render(used_scope, sig);
+
+        // Рисуем сигнал
+        draw_signal(used_scope, used_scope->scope_render_data.renderer);
+
+
         // Текущие текстбоксы информации о сигнале
         Textbox_render(&used_scope->scope_render_data.signal_scale_textbox, used_scope->scope_render_data.renderer);
 
         Textbox_render(&used_scope->scope_render_data.time_scale_textbox, used_scope->scope_render_data.renderer);
 
-        Textbox_render(&used_scope->scope_render_data.frequency_textbox, used_scope->scope_render_data.renderer);
+        Textbox_render(&used_scope->scope_render_data.frequency_or_period_textbox, used_scope->scope_render_data.renderer);
 
         Textbox_render(&used_scope->scope_render_data.amplitude_textbox, used_scope->scope_render_data.renderer);
 
@@ -924,7 +974,48 @@ void scope_destroy(Scope* used_scope)
 // =========================================================================================== HELPER-FUNCTIONS
 
 
-void scope_buffer_init(Scope* used_scope)
+void zero_crossings_check(Scope* used_scope)
+{
+    // сравнивает последние 2 сэмпла
+    // если найден переход:
+    // сохраняет timestamp в отдельный ring buffer
+
+    if (!used_scope) return;
+
+    scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
+    scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
+    zero_crossing_ctx* zc = &ctrl->zero_crossings;
+
+    if (buffer->count < 2) return;
+
+    int head = buffer->head;
+
+    // предыдущий индекс (последний записанный сэмпл)
+    int prev_index = (head - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+    int curr_index = (head - 2 + BUFFER_SIZE) % BUFFER_SIZE;
+
+    float prev_value = buffer->samples[curr_index].value;
+    float curr_value = buffer->samples[prev_index].value;
+
+
+    float treshold = used_scope->signal_control_data.controlled_signal->current_treshold;
+
+    // ===== zero crossing вверх =====
+    if (prev_value < -treshold  && curr_value >= treshold)
+    {
+        double t = buffer->samples[prev_index].time;
+
+        zc->times[zc->head] = t;
+
+        zc->head = (zc->head + 1) % MAX_ZERO_CROSSINGS_TO_CHECK;
+
+        if (zc->count < MAX_ZERO_CROSSINGS_TO_CHECK)
+            zc->count++;
+    }
+}
+
+
+void scope_signal_buffer_init(Scope* used_scope)
 {
     scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
 
@@ -932,6 +1023,18 @@ void scope_buffer_init(Scope* used_scope)
 
     buffer->head = 0;
     buffer->count = 0;
+}
+
+
+void scope_zero_cross_buffer_init(Scope* used_scope)
+{
+    zero_crossing_ctx* zc =
+        &used_scope->signal_control_data.zero_crossings;
+
+    memset(zc->times, 0, sizeof(zc->times));
+
+    zc->head = 0;
+    zc->count = 0;
 }
 
 
@@ -2028,19 +2131,19 @@ void scope_gui_renew(Scope* used_scope)
     // Частота
 
     // По 15 линии
-    used_scope->scope_render_data.gui_parameters.frequency_info_x_1 = used_scope->scope_render_data.gui_parameters.v_line_15_x1;
-    used_scope->scope_render_data.gui_parameters.frequency_info_y_1 = used_scope->scope_render_data.gui_parameters.scope_info_zone_display_y_1;
+    used_scope->scope_render_data.gui_parameters.frequency_or_period_info_x_1 = used_scope->scope_render_data.gui_parameters.v_line_15_x1;
+    used_scope->scope_render_data.gui_parameters.frequency_or_period_info_y_1 = used_scope->scope_render_data.gui_parameters.scope_info_zone_display_y_1;
 
-    used_scope->scope_render_data.gui_parameters.frequency_info_fill_color_1 = used_scope->scope_render_data.main_color_4;
+    used_scope->scope_render_data.gui_parameters.frequency_or_period_info_fill_color_1 = used_scope->scope_render_data.main_color_4;
 
-    used_scope->scope_render_data.frequency_textbox = 
-        *Textbox_init(used_scope->scope_render_data.gui_parameters.frequency_info_fill_color_1, 30 / (50 / used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit));
+    used_scope->scope_render_data.frequency_or_period_textbox = 
+        *Textbox_init(used_scope->scope_render_data.gui_parameters.frequency_or_period_info_fill_color_1, 30 / (50 / used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit));
 
-    used_scope->scope_render_data.frequency_textbox.x = used_scope->scope_render_data.gui_parameters.frequency_info_x_1;
-    used_scope->scope_render_data.frequency_textbox.y = used_scope->scope_render_data.gui_parameters.frequency_info_y_1;
+    used_scope->scope_render_data.frequency_or_period_textbox.x = used_scope->scope_render_data.gui_parameters.frequency_or_period_info_x_1;
+    used_scope->scope_render_data.frequency_or_period_textbox.y = used_scope->scope_render_data.gui_parameters.frequency_or_period_info_y_1;
 
     // Init значение текста - поменяется сразу при обновлении буфера
-    Textbox_set_content(&used_scope->scope_render_data.frequency_textbox, "FREQUENCY");
+    Textbox_set_content(&used_scope->scope_render_data.frequency_or_period_textbox, "FREQUENCY");
 }
 
 
@@ -2091,94 +2194,140 @@ void scope_display_animation(Scope* used_scope)
 }
 
 
+void draw_signal(Scope* used_scope, SDL_Renderer* renderer)
+{
+    if (!used_scope) return;
+
+    scope_render_ctx* r = &used_scope->scope_render_data;
+    signal_render_ctx* signal = &r->signal_render_data;
+
+    // Цвет линии сигнала (можешь сделать отдельный main_color)
+    SDL_Color color = r->main_color_5;
+
+    SDL_SetRenderDrawColor(
+
+        renderer,
+        color.r,
+        color.g,
+        color.b,
+        color.a
+        
+    );
+
+    // Рисуем точки
+    for (int i = 0; i < signal->size; i++)
+    {
+        signal_render_point* p = &signal->points[i];
+
+        if (!p->show) continue;
+
+        int signal_width = used_scope->scope_render_data.basic_border_thickness_2;
+
+        for (int i = - signal_width / 2; i == signal_width / 2; i++)
+        {
+            my_sdl_draw_pixel(renderer, p->x, p->y + i, color);
+        }
+    }
+}
+
+
 void scope_screen_gui_init(Scope* used_scope)
 {
-    int w = used_scope->scope_render_data.gui_parameters.display_w;
+    signal_render_ctx* render = &used_scope->scope_render_data.signal_render_data;
 
-    used_scope->scope_render_data.signal_render_data.points = malloc(sizeof(signal_render_point) * w);
+    render->size = RENDER_POINTS_BUFFER_SIZE;
 
-    used_scope->scope_render_data.signal_render_data.size = w;
+    // ничего не выделяем
+    // память уже существует внутри struct
 }
 
 
 void scope_screen_gui_delete(Scope* used_scope)
 {
-    if (!used_scope) return;
-
-    if (used_scope->scope_render_data.signal_render_data.points)
-    {
-        free(used_scope->scope_render_data.signal_render_data.points);
-        used_scope->scope_render_data.signal_render_data.points = NULL;
-    }
-
-    used_scope->scope_render_data.signal_render_data.size = 0;
-
+    // ничего не free
+    // потому что нет heap-памяти
 }
+
 
 
 void scope_find_period(Scope* used_scope)
 {
-    //signal crosses zero when:
-    //prev.value < 0 && curr.value >= 0
-    //(можно добавить hysteresis позже)
+    // Берёт zero-crossing события (НЕ сигнал)
+    // считает интервалы между ними
+    // фильтрует мусор
+    // усредняет
+    // получает:
+    // period
+    // frequency
 
-    scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
-    scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
+    scope_signal_control_ctx* signal_ctx = &used_scope->signal_control_data;
+    zero_crossing_ctx* crossings_ctx = &signal_ctx->zero_crossings;
 
-    if (buffer->count < 4) return;
+    // Если слишком мало пересечений — период определить нельзя
+    if (crossings_ctx->count < 4) return;
 
-    double crossings[MAX_ZERO_CROSSINGS_TO_CHECK];
+    double measured_periods[MAX_ZERO_CROSSINGS_TO_CHECK];
+    int measured_period_count = 0;
 
-    int found = 0;
+    // индекс последнего записанного пересечения
+    int latest_crossing_index = crossings_ctx->head;
 
-    int head = buffer->head;
-
-    // идём назад по кольцу
-    for (int i = 0; i < buffer->count - 1 && found < MAX_ZERO_CROSSINGS_TO_CHECK; i++)
+    // ============================================================
+    // Проходим по истории zero-crossing событий (с конца)
+    // ============================================================
+    for (
+        
+        int i = 0;
+        i < crossings_ctx->count - 1 && measured_period_count < MAX_ZERO_CROSSINGS_TO_CHECK;
+        i++
+        
+    )
     {
-        int curr_idx = (head - i - 1 + BUFFER_SIZE) % BUFFER_SIZE;
-        int prev_idx = (head - i - 2 + BUFFER_SIZE) % BUFFER_SIZE;
+        // берём два соседних пересечения назад по времени
+        int current_index =
+            (latest_crossing_index - i - 1 + MAX_ZERO_CROSSINGS_TO_CHECK) % MAX_ZERO_CROSSINGS_TO_CHECK;
 
-        float curr = buffer->samples[curr_idx].value;
-        float prev = buffer->samples[prev_idx].value;
+        int previous_index =
+            (latest_crossing_index - i - 2 + MAX_ZERO_CROSSINGS_TO_CHECK) % MAX_ZERO_CROSSINGS_TO_CHECK;
 
-        // zero crossing вверх
-        if (prev < 0.0f && curr >= 0.0f)
+        double current_time = crossings_ctx->times[current_index];
+        double previous_time = crossings_ctx->times[previous_index];
+
+        // разница времени между двумя последовательными пересечениями
+        double time_difference = current_time - previous_time;
+
+        // ========================================================
+        // Фильтр мусора:
+        // отбрасываем отрицательные и нереалистичные интервалы
+        // ========================================================
+        if (time_difference > 0.0 && time_difference < 10.0)
         {
-            crossings[found] = buffer->samples[curr_idx].time;
-            found++;
+            measured_periods[measured_period_count++] = time_difference;
         }
     }
 
-    if (found < 2) return;
+    // если не удалось получить ни одного валидного периода
+    if (measured_period_count == 0) return;
 
-    // сортировка не нужна — мы шли назад, значит они уже по времени DESC
+    // ============================================================
+    // Усреднение всех измеренных периодов
+    // ============================================================
+    double period_sum = 0.0;
 
-    double periods[MAX_ZERO_CROSSINGS_TO_CHECK];
-    int pcount = 0;
-
-    // берём разницы между каждыми 2 crossing (2 crossing = 1 период)
-    for (int i = 0; i < found - 2 && pcount < MAX_ZERO_CROSSINGS_TO_CHECK; i += 2)
+    for (int i = 0; i < measured_period_count; i++)
     {
-        double T = crossings[i] - crossings[i + 2];
-
-        if (T > 0.0 && T < 10.0) // защита от мусора
-        {
-            periods[pcount++] = T;
-        }
+        period_sum += measured_periods[i];
     }
 
-    if (pcount == 0) return;
+    double average_period = period_sum / measured_period_count;
 
-    double sum = 0.0;
-    for (int i = 0; i < pcount; i++) sum += periods[i];
+    // ============================================================
+    // Обновление результата анализа сигнала
+    // ============================================================
+    signal_ctx->current_period_value = average_period;
 
-    double avg_T = sum / pcount;
-
-    ctrl->current_frequency_value = (int)(1.0 / avg_T);     // Hz
-    ctrl->current_period_value = avg_T;                     // Seconds
+    signal_ctx->current_frequency_value = (average_period > 0.0) ? (1.0 / average_period) : 0.0;
 }
-
 
 
 void scope_find_amplitude(Scope* used_scope)
@@ -2187,31 +2336,38 @@ void scope_find_amplitude(Scope* used_scope)
     scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
 
     if (buffer->count < 4) return;
-
-    if (ctrl->current_frequency_value <= 0) return;
+    if (ctrl->current_frequency_value <= 0.0f) return;
 
     int head = buffer->head;
 
-    // ===== 1. окно через уже найденный период =====
+    // =========================================================
+    // 1. определяем окно ~ 3 периода сигнала
+    // =========================================================
 
     double freq = (double)ctrl->current_frequency_value;
 
     int samples_per_period = (int)(SCOPE_SAMPLE_RATE / freq);
-    int window_size = samples_per_period * 3; // 3 периода
+    int window_size = samples_per_period * 3;
 
-    if (window_size < 10) window_size = 10;
+    if (window_size < 10)
+        window_size = 10;
 
-    if (window_size > buffer->count) window_size = buffer->count;
+    if (window_size > buffer->count)
+        window_size = buffer->count;
 
-    // ===== 2. границы окна =====
+    // =========================================================
+    // 2. границы кольцевого окна
+    // =========================================================
 
     int start = (head - window_size + BUFFER_SIZE) % BUFFER_SIZE;
     int end   = (head - 1 + BUFFER_SIZE) % BUFFER_SIZE;
 
-    // ===== 3. min/max =====
+    // =========================================================
+    // 3. поиск min/max
+    // =========================================================
 
-    float min_v = FLT_MAX;
-    float max_v = -FLT_MAX;
+    float min_value = FLT_MAX;
+    float max_value = -FLT_MAX;
 
     int i = start;
 
@@ -2219,8 +2375,8 @@ void scope_find_amplitude(Scope* used_scope)
     {
         float v = buffer->samples[i].value;
 
-        if (v < min_v) min_v = v;
-        if (v > max_v) max_v = v;
+        if (v < min_value) min_value = v;
+        if (v > max_value) max_value = v;
 
         if (i == end)
             break;
@@ -2228,32 +2384,581 @@ void scope_find_amplitude(Scope* used_scope)
         i = (i + 1) % BUFFER_SIZE;
     }
 
-    ctrl->current_min_signal_value = (int)min_v;
-    ctrl->current_max_signal_value = (int)max_v;
+    ctrl->current_min_signal_value = min_value;
+    ctrl->current_max_signal_value = max_value;
+
+    // =========================================================
+    // 4. амплитуда
+    // =========================================================
+
+    float raw_amplitude = (max_value - min_value) * 0.5f;
+
+    // первый запуск
+    if (!ctrl->amplitude_initialized)
+    {
+        ctrl->amplitude_estimate = raw_amplitude;
+        ctrl->amplitude_initialized = true;
+    }
+    else
+    {
+        // ОДНО сглаживание (важно: убрали двойное)
+        ctrl->amplitude_estimate =
+            0.85f * ctrl->amplitude_estimate +
+            0.15f * raw_amplitude;
+    }
+
+    if (ctrl->amplitude_estimate < 0.001f)
+        ctrl->amplitude_estimate = 0.001f;
+
+    // =========================================================
+    // 5. обновление threshold (не каждый вызов!)
+    // =========================================================
+
+    ctrl->threshold_update_accumulator++;
+
+    const int THRESHOLD_UPDATE_RATE = 10;
+
+    if (ctrl->threshold_update_accumulator >= THRESHOLD_UPDATE_RATE)
+    {
+        float zc_threshold = ctrl->amplitude_estimate * 0.02f;
+
+        if (zc_threshold < 0.001f)
+            zc_threshold = 0.001f;
+
+        ctrl->controlled_signal->current_treshold = zc_threshold;
+
+        ctrl->threshold_update_accumulator = 0;
+    }
 }
 
 
-void scope_screen_gui_renew(Scope* used_scope)
+// ===== Утиллиты для scope_screens_gui_renew_by_signal_data =====
+
+static float format_frequency(float f, const char** unit)
+{
+    if (f >= 1e6f) { *unit = "MHz"; return f * 1e-6f; }
+    if (f >= 1e3f) { *unit = "kHz"; return f * 1e-3f; }
+    if (f >= 1.0f)  { *unit = "Hz";  return f; }
+
+    *unit = "mHz";
+    return f * 1e3f;
+}
+
+static float format_period(float t, const char** unit)
+{
+    if (t >= 1.0f)      { *unit = "s";  return t; }
+    if (t >= 1e-3f)     { *unit = "ms"; return t * 1e3f; }
+    if (t >= 1e-6f)     { *unit = "us"; return t * 1e6f; }
+
+    *unit = "ns";
+    return t * 1e9f;
+}
+
+void format_time(Scope* used_scope, const char** unit)
+{
+    if (used_scope->main_settings.current_time_units == NANOSECONDS_TU)     { *unit = "ns"; }
+    if (used_scope->main_settings.current_time_units == MICROSECONDS_TU)    { *unit = "mcs";}
+    if (used_scope->main_settings.current_time_units == MILLISECONDS_TU)    { *unit = "ms"; }
+    if (used_scope->main_settings.current_time_units == SECONDS_TU)         { *unit = "s";  }
+}
+
+
+static float format_voltage(float v, const char** unit)
+{
+    *unit = "V";
+    return v;
+}
+
+
+// TODO: НЕ РАБОТАЕТ
+void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
+{
+    if (!used_scope || !render_data) return;
+
+    scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
+    scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
+    scope_render_ctx* render_buffer = &used_scope->scope_render_data;
+
+    if (!buffer || !render_buffer) return;
+    if (!render_data->points) return;
+    if (buffer->count < 2) return;
+
+    const int display_w = render_buffer->gui_parameters.display_w;
+    const int display_h = render_buffer->gui_parameters.display_h;
+
+    if (display_w <= 0 || display_h <= 0) return;
+
+    // =========================================================
+    // 1. Кол-во точек рендера (CAPACITY SAFE)
+    // =========================================================
+
+    int points_to_draw_quantity = display_w * SCOPE_SCREEN_OVERSAMPLING;
+
+    if (points_to_draw_quantity <= 0)
+        return;
+
+    if (points_to_draw_quantity > RENDER_POINTS_BUFFER_SIZE)
+        points_to_draw_quantity = RENDER_POINTS_BUFFER_SIZE;
+
+    render_data->size = points_to_draw_quantity;
+
+    // =========================================================
+    // 2. Временное окно
+    // =========================================================
+
+    double time_window =
+        used_scope->scope_render_data.gui_parameters.display_width_units *
+        used_scope->main_settings.time_val_in_one_unit;
+
+    if (time_window <= 0.0) return;
+
+    int window_samples = (int)(time_window * SCOPE_SAMPLE_RATE);
+
+    if (window_samples < 2)
+        window_samples = 2;
+
+    if (window_samples > buffer->count)
+        window_samples = buffer->count;
+
+    if (window_samples < 2)
+        return;
+
+    // =========================================================
+    // 3. START INDEX (SAFE RING BUFFER)
+    // =========================================================
+
+    int start_index = buffer->head - window_samples;
+
+    start_index %= BUFFER_SIZE;
+    if (start_index < 0)
+        start_index += BUFFER_SIZE;
+
+    // =========================================================
+    // 4. SCALE (PHYSICAL MODE)
+    // =========================================================
+
+    float volts_per_unit = (float)used_scope->main_settings.signal_val_in_one_unit;
+    if (volts_per_unit < 1e-6f)
+        volts_per_unit = 1.0f;
+
+    float pixels_per_unit = (float)display_h / volts_per_unit;
+
+    int zero_y =
+        render_buffer->gui_parameters.display_y +
+        display_h / 2;
+
+    // =========================================================
+    // 5. FIXED TIME SAMPLING (NO FLOAT ACCUMULATION BUGS)
+    // =========================================================
+
+    // ключевой фикс:
+    // убираем float acc вообще
+    // используем прямую дискретизацию
+
+    for (int i = 0; i < points_to_draw_quantity; i++)
+    {
+        signal_render_point* p = &render_data->points[i];
+
+        // нормализованный индекс 0..1
+        int sample_offset =
+            (i * window_samples) / points_to_draw_quantity;
+
+        int idx = start_index + sample_offset;
+
+        idx %= BUFFER_SIZE;
+        if (idx < 0)
+            idx += BUFFER_SIZE;
+
+        float v = buffer->samples[idx].value;
+
+        // X
+        p->x =
+            render_buffer->gui_parameters.display_x +
+            (i * display_w / points_to_draw_quantity);
+
+        // Y (physical scale)
+        float units = v / volts_per_unit;
+
+        p->y = zero_y - (int)(units * pixels_per_unit);
+
+        p->show = true;
+    }
+}
+
+
+void build_scroll_render(Scope* used_scope, signal_render_ctx* render_data)
+{
+
+}
+
+void build_period_render(Scope* used_scope, signal_render_ctx* render_data)
+{
+
+}
+
+/*
+void build_period_render(Scope* used_scope, signal_render_ctx* render_data)
+{
+
+          
+    // =========================================================
+    // 5. Поиск min/max в окне (нормализация Y)
+    // =========================================================
+    // Нам нужно понять диапазон сигнала,
+    // чтобы растянуть его на высоту дисплея
+
+    float min_v = FLT_MAX;
+    float max_v = -FLT_MAX;
+
+    int scan_idx = buffer_render_start_sample_idx;
+
+    // пробегаем всё окно и ищем границы сигнала
+    for (int i = 0; i < window_samples; i++)
+    {
+        float v = buffer->samples[scan_idx].value;
+
+        if (v < min_v) min_v = v;
+        if (v > max_v) max_v = v;
+
+        scan_idx = (scan_idx + 1) % BUFFER_SIZE;
+    }
+
+    // амплитуда (чтобы избежать деления на 0)
+    float amp = max_v - min_v;
+    if (amp < 1e-6f) amp = 1e-6f;
+
+    // =========================================================
+    // 6. Основной рендер: преобразование в точки экрана
+    // =========================================================
+    // acc — накопитель шага по сэмплам (float точность лучше int stepping)
+
+    float acc = 0.0f;
+
+    for (int i = 0; i < points_to_draw_quantity; i++)
+    {
+        signal_render_point* p = &render_data->points[i];
+
+        // =====================================================
+        // 6.1. выбираем сэмпл из буфера
+        // =====================================================
+        // берём старт + смещение по шагу
+        int sample_idx = buffer_render_start_sample_idx + (int)acc;
+
+        // защита от выхода за кольцевой буфер
+        sample_idx %= BUFFER_SIZE;
+
+        float v = buffer->samples[sample_idx].value;
+
+        // =====================================================
+        // 6.2. X координата (равномерное распределение по экрану)
+        // =====================================================
+        p->x = render_buffer->gui_parameters.display_x +
+               (i * display_w / points_to_draw_quantity);
+
+        // =====================================================
+        // 6.3. Y нормализация сигнала
+        // =====================================================
+        // переводим сигнал в диапазон 0..1
+
+        float norm = (v - min_v) / amp;
+
+        // инвертируем Y (SDL экран вниз растёт)
+        p->y = render_buffer->gui_parameters.display_y +
+               display_h -
+               (int)(norm * display_h);
+
+        // точка активна
+        p->show = true;
+
+        // =====================================================
+        // 6.4. двигаем "виртуальный индекс" по сигналу
+        // =====================================================
+        acc += step;
+    }
+
+}
+*/
+
+
+// ===== Утиллиты для scope_screens_gui_renew_by_signal_data =====
+
+
+void scope_screens_gui_renew_by_signal_data(Scope* used_scope)
 {
     // Апдейт структуры скрина, исходя из флагов состояния осциллографа.
-}
 
+    /*
+    
+        Задача функции - зная:
+
+            Текущий режим демонстрации сигнала: used_scope->main_settings.current_mode
+
+            Текущую единицу сетки по оси y (единица значения сигнала): used_scope->main_settings.current_signal_units; (ВЛИЯЕТ ЛИШЬ НА РЕНДЕР СИГНАЛА, НЕ ПОКАЗАТЕЛЕЙ, переменная всегда в Вольтах)
+            Текущую единицу сетки по оси x (единица времени сигнала): used_scope->main_settings.current_time_units; (ВЛИЯЕТ ЛИШЬ НА РЕНДЕР СИГНАЛА, НЕ ПОКАЗАТЕЛЕЙ, переменная всегда в секундах)
+            Текущую единицу отображения частоты: used_scope->main_settings.current_frequency_units (ВЛИЯЕТ ЛИШЬ НА РЕНДЕР СИГНАЛА, НЕ ПОКАЗАТЕЛЕЙ, переменная всегда в Герцах)
+
+            Количество периодов для демонстрации: used_scope->main_settings.periods_to_display
+
+            Буфер: used_scope->signal_control_data.scope_buffer_data;               (времена в секундах, сигнал в Вольтах)
+            Период: used_scope->signal_control_data.current_period_value;           (в секундах)
+            Частоту: used_scope->signal_control_data.current_frequency_value;       (в Герцах)
+            Амплитуду:  used_scope->signal_control_data.current_max_signal_value    (В Вольтах)
+
+
+            Координаты центра дисплея и его размеры (для заполнения used_scope->scope_render_data.signal_render_data):
+
+            used_scope->scope_render_data.gui_parameters.display_x, 
+            used_scope->scope_render_data.gui_parameters.display_y,
+            used_scope->scope_render_data.gui_parameters.display_w,
+            used_scope->scope_render_data.gui_parameters.display_h,
+            
+
+        Проделать такое:
+
+            1) Исходя из значений периода, частоты и аплитуды - понять в каких единицах их надо записывать в текстбоксы в формате "xxx.xxx UNIT" - допустим 999.930 Гц 1.010 Khz - 
+            допустимо, а 1002.332 Гц - недопустимо (так же с вольтами). Записать локальные переменные в этой функции, которыми можно будет воспользоваться позже для вывода амплитуды,
+            периода / частоты. + Надо понять частоту или период в Textbox_set_content(&used_scope->scope_render_data.frequency_or_period_textbox, "СТРОКА"); и
+            временную единицу или количество периодов в Textbox_set_content(&used_scope->scope_render_data.time_scale_textbox, "СТРОКА") мы демонстрируем в строках, исходя из used_scope->main_settings.current_mode
+            (всё, что связано с периодом показывается только при SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM)
+
+
+            2) Обновить строки контента текстбоксов по формату подбираемому расчётами и информацией из данных:
+
+                1.1 Textbox_set_content(&used_scope->scope_render_data.signal_scale_textbox, "СТРОКА"); - Если used_scope->main_settings.current_signal_units == VOLTS_SU выставить "SU: V."
+
+                1.2 Textbox_set_content(&used_scope->scope_render_data.time_scale_textbox, "СТРОКА"); - По time_units выставитьь "TU: MS" или "TU: S" или "TU: NS."... или выставить points_to_draw_quantity Per.
+
+                1.3 Textbox_set_content(&used_scope->scope_render_data.amplitude_textbox, "СТРОКА"); По used_scope->signal_control_data.current_max_signal_value выставить "MAX: points_to_draw_quantity V."
+
+                1.4 Textbox_set_content(&used_scope->scope_render_data.frequency_or_period_textbox, "СТРОКА");  - Тут в зависимости от режима used_scope->main_settings.current_mode либо
+                выставить текущую частоту, как "F: points_to_draw_quantity FREQ_UNITS" "T: points_to_draw_quantity TIME_UNITS"       
+                                                  
+
+            3) Подготовить used_scope->scope_render_data.signal_render_data, исходя из used_scope->main_settings.current_mode и других параметров:
+
+                3.0. проверяемся на ограничение по частоте used_scope->signal_control_data.current_frequency_value для данного режима (на какой-то частоте какой-то режим нереален -
+                на малой мы можем работать только по по 3.1 и 3.2, на большой можем работать только по 3.1. и 3.3, соотв. этот шаг штука ещё и определяет допустимые переходы
+                в режимах рендеринга - через сет used_scope->main_settings.acessable_modes: 
+                
+                used_scope->main_settings.acessable_modes[0] = SCOPE_MODE_FIXED_TIME_STEP_SRM;
+                used_scope->main_settings.acessable_modes[1] = SCOPE_MODE_SCROLL_TO_RIGHT_SRM;
+                used_scope->main_settings.acessable_modes[2] = LIMIT_SRM;
+
+                или
+
+                used_scope->main_settings.acessable_modes[0] = SCOPE_MODE_FIXED_TIME_STEP_SRM;
+                used_scope->main_settings.acessable_modes[1] = SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM
+                used_scope->main_settings.acessable_modes[2] = LIMIT_SRM;
+
+                которые далее будут использованы на коллбеке кнопки смены режима для цикличной смены режима отображения в used_scope->main_settings.current_mode, по которому
+                пойдут шаги 3.1 - 3.3
+
+                3.1 При SCOPE_MODE_FIXED_TIME_STEP_SRM: смотрим на used_scope->main_settings.current_signal_units и used_scope->main_settings.current_time_units, смотрим на
+                used_scope->signal_control_data.scope_buffer_data и исходя из структуры used_scope->scope_render_data.signal_render_data считаем нужное количество точек для рендера на весь дисплей,
+                забираем из даты буффера это количество точек количество точек, сдвигаясь от head на рассчётное количество, игнорируя пустые и забивая used_scope->signal_control_data.scope_buffer_data
+                в порядке, соответвтующем порядку used_scope->signal_control_data.scope_buffer_data, от элемента head - elements_quantity (или от последнего заполненного, не трогая в 
+                used_scope->scope_render_data.signal_render_data клетки, соответствующие незаполненным в данный момент внутри used_scope->signal_control_data.scope_buffer_data).
+
+                3.2 При SCOPE_MODE_SCROLL_TO_RIGHT_SRM ,при соответствии частоты просто начинаем забивать head used_scope->main_settings.current_signal_units c [0] элемента
+                used_scope->scope_render_data.signal_render_data, каждый шаг сдвигая элементы used_scope->scope_render_data.signal_render_data вправо, а последний обновляя текущим head, 
+                при выходе данных за конец used_scope->scope_render_data.signal_render_data данное из [limit] выбрасывается и сдвиги продолжаются по новым head head used_scope->main_settings.current_signal_units
+
+                3.3 При SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM, по значениям used_scope->signal_control_data.current_period_value и used_scope->main_settings.periods_to_display, определить,
+                какой кусок used_scope->signal_control_data.scope_buffer_data надо забрать, начиная с первого после head фильтрованного перехода сигнала через 0, забрать этот кусок 
+                и вставить в used_scope->scope_render_data.signal_render_data, в соотвт. с текущим масштабом развертки на период и значение. 
+    */
+
+    if (!used_scope) return;
+
+    scope_signal_control_ctx* sig = &used_scope->signal_control_data;
+    scope_render_ctx* render = &used_scope->scope_render_data;
+    scope_main_settings_ctx* ms = &used_scope->main_settings;
+
+
+    // =========================================================
+    // 1. Нормализация значений (UI слой)
+    // =========================================================
+
+    const char* freq_unit;
+    float freq = format_frequency(sig->current_frequency_value, &freq_unit);
+
+    const char* time_unit;
+
+    float period = format_period(sig->current_period_value, &time_unit);
+    format_time(used_scope, &time_unit);
+
+    float time_scale = (float)ms->time_val_in_one_unit;
+
+    const char* volt_unit;
+    float max_v = format_voltage(sig->current_max_signal_value, &volt_unit);
+
+    const char* amp_unit;
+    float amp = format_voltage(sig->amplitude_estimate, &amp_unit);
+
+
+    // =========================================================
+    // 2. Текстбоксы (UI слой)
+    // =========================================================
+
+    // Единицы
+    if (ms->current_signal_units == VOLTS_SU)
+    {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "SU: %.3f %s", max_v, volt_unit);
+        Textbox_set_content(&render->signal_scale_textbox, buf);
+    }
+
+    // Время
+    if (ms->current_mode != SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM)
+    {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "ST: %.3f %s", time_scale, time_unit);
+        Textbox_set_content(&render->time_scale_textbox, buf);
+    }
+    else
+    {
+        // фиксированное окно времени
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%d P", ms->periods_to_display);
+        Textbox_set_content(&render->time_scale_textbox, buf);
+    }
+
+    // Амплитуда
+    {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "AMP: %.3f V", amp);
+        Textbox_set_content(&render->amplitude_textbox, buf);
+    }
+
+
+    // Частота или приод
+
+    {
+        char buf[64];
+
+        if (ms->current_mode == SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM)
+        {
+            snprintf(buf, sizeof(buf), "T: %.3f %s", period, time_unit);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf), "F: %.3f %s", freq, freq_unit);
+        }
+
+        Textbox_set_content(&render->frequency_or_period_textbox, buf);
+    }
+
+
+    // =========================================================
+    // 3. Рендер дата сигнала по текущим режмам и текущему буфферу (UI слой)
+    // =========================================================
+
+    /*
+
+        scope_screens_gui_renew_by_signal_data()
+
+        ├── 1. Проверка частоты
+        ├── 2. Выбор режима
+        │       ├── SCOPE_MODE_FIXED_TIME_STEP_SRM
+        │       ├── SCOPE_MODE_SCROLL_TO_RIGHT_SRM
+        │       └── SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM
+        │
+        ├── 3. заполнение signal_render_data
+        └── 4. обновление UI текстбоксов
+
+    */
+
+
+    // ===== Проверка частоты ===== 
+
+    float f = used_scope->signal_control_data.current_frequency_value;
+
+
+    // очистка
+    ms->acessable_modes[0] = LIMIT_SRM;
+    ms->acessable_modes[1] = LIMIT_SRM;
+    ms->acessable_modes[2] = LIMIT_SRM;
+
+    if (f <= FREQ_TO_SEPARATE_MODES_LB)
+    {
+        ms->acessable_modes[0] = SCOPE_MODE_FIXED_TIME_STEP_SRM;
+        ms->acessable_modes[1] = SCOPE_MODE_SCROLL_TO_RIGHT_SRM;
+        ms->acessable_modes[2] = LIMIT_SRM;
+    }
+    
+    if (f >= FREQ_TO_SEPARATE_MODES_HB)
+    {
+        ms->acessable_modes[0] = SCOPE_MODE_FIXED_TIME_STEP_SRM;
+        ms->acessable_modes[1] = SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM;
+        ms->acessable_modes[2] = LIMIT_SRM;
+    }
+
+    // В промежутках останутся старые режимы
+
+
+    bool safe_old_mode = false;
+
+    for (int i = 0; i <= 2; i++)
+    {
+        if (ms->current_mode == ms->acessable_modes[i]) safe_old_mode = true;
+    }
+
+    if (!safe_old_mode) ms->current_mode = ms->acessable_modes[0];
+
+
+    /*
+
+    // ===== Присвоение данных о сигнале для рендера ====
+
+    signal_render_ctx* signal_render_data_out = &render->signal_render_data;
+
+    switch (ms->current_mode)
+    {
+        case SCOPE_MODE_FIXED_TIME_STEP_SRM:
+        {
+            build_fixed_time_render(used_scope, signal_render_data_out);
+            break;
+        }
+
+        case SCOPE_MODE_SCROLL_TO_RIGHT_SRM:
+        {
+            build_scroll_render(used_scope, signal_render_data_out);
+            break;
+        }
+
+        case SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM:
+        {
+            build_period_render(used_scope, signal_render_data_out);
+            break;
+        }
+
+        default: break;
+    }
+
+    */
+}
 
 
 void scope_buffer_clear(Scope* used_scope)
 {
     if (!used_scope) return;
 
-    scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
+    scope_buffer_ctx* buffer =
+        &used_scope->signal_control_data.scope_buffer_data;
 
     buffer->head = 0;
     buffer->count = 0;
 
-    // необязательно, но очень полезно для дебага
     memset(buffer->samples, 0, sizeof(buffer->samples));
+
+    // ===== сброс derived state =====
+
+    zero_crossing_ctx* zc =
+        &used_scope->signal_control_data.zero_crossings;
+
+    zc->head = 0;
+    zc->count = 0;
 }
-
-
 
 // =========================================================================================== HELPER-FUNCTIONS
 
@@ -2366,6 +3071,16 @@ void on_off_command(Button* btn)
     {
         scope_buffer_clear(used_scope);
         used_scope->scope_render_data.scope_on_off_button.pressed_color = used_scope->scope_render_data.main_color_5;
+
+
+        used_scope->signal_control_data.type_of_controlled_signal = CLEAN_CST;
+
+        used_scope->signal_control_data.controlled_signal->current_treshold = ZC_THRESHOLD_START_VALUE;
+
+        
+        used_scope->signal_control_data.threshold_update_accumulator = 0.0f;
+        used_scope->signal_control_data.amplitude_estimate = 0;
+        used_scope->signal_control_data.amplitude_initialized = false;
     }
 }
 
