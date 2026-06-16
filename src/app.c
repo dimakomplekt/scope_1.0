@@ -158,7 +158,8 @@ void SDL_app_update(SDL_app_ctx* app)
         printf("Scope signal value: .%f \n", sin_generator_get_clean());
         printf("Scope signal value from buffer: .%f \n", scope_1.signal_control_data.scope_buffer_data.samples[scope_1.signal_control_data.scope_buffer_data.head - 1].value);
         printf("Scope signal by analysis A: .%f \n", scope_1.signal_control_data.current_max_signal_value);
-        printf("Scope signal by analysis F: .%f \n\n", scope_1.signal_control_data.current_period_value);
+        // printf("Scope signal by analysis T: .%f \n", scope_1.signal_control_data.current_period_value);
+        printf("Scope signal by analysis F: .%f \n\n", scope_1.signal_control_data.current_frequency_value);
 
 
         start_time_1 += STEP_240;
@@ -205,8 +206,7 @@ int SDL_app_run(SDL_app_ctx* app)
         // Апдейт и рендер апы
         SDL_app_update(app);
         SDL_app_render(app);
-
-        SDL_Delay(1);
+        
     }
 
     return 1;

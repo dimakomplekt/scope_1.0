@@ -215,6 +215,8 @@ void scope_buffer_update(Scope* used_scope)
 
     if (buffer->count < BUFFER_SIZE) buffer->count++;
 
+
+
     // Чек пересечений
     zero_crossings_check(used_scope);
 }
@@ -307,10 +309,11 @@ void buffer_analysis(Scope* used_scope)
                 для толстой линии сигнала сдвигом по y)
     
     */
+
+
     if (!used_scope) return;
 
     if (used_scope->main_settings.current_state != ON_SS) return;
-
 
     scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
     scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
@@ -318,6 +321,7 @@ void buffer_analysis(Scope* used_scope)
     // Мин. кол-во даты для анализа
 
     bool update_data_skip_flag = true;
+
     if (buffer->count > 2) update_data_skip_flag = false;
 
     if (!update_data_skip_flag)
@@ -332,7 +336,6 @@ void buffer_analysis(Scope* used_scope)
 
     // Обновляем графику под рендер (даже для первых точек)
     // scope_screens_gui_renew_by_signal_data(used_scope);
-
 }
 
 
@@ -976,42 +979,127 @@ void scope_destroy(Scope* used_scope)
 
 void zero_crossings_check(Scope* used_scope)
 {
-    // сравнивает последние 2 сэмпла
-    // если найден переход:
-    // сохраняет timestamp в отдельный ring buffer
+    // =========================================================
+    // 0. ЗАЩИТА ОТ NULL
+    // =========================================================
 
     if (!used_scope) return;
 
-    scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
-    scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
-    zero_crossing_ctx* zc = &ctrl->zero_crossings;
+    scope_signal_control_ctx* ctrl =
+        &used_scope->signal_control_data;
 
+    scope_buffer_ctx* buffer =
+        &ctrl->scope_buffer_data;
+
+    zero_crossing_ctx* zc =
+        &ctrl->zero_crossings;
+
+    // Нужно минимум 2 точки для анализа перехода
     if (buffer->count < 2) return;
+
+    // =========================================================
+    // 1. ДОСТАЁМ ПОСЛЕДНИЕ 2 СЭМПЛА
+    // =========================================================
+    //
+    // Почему только последние:
+    // - это realtime detector
+    // - мы не пересматриваем историю
+    // - минимальная задержка
 
     int head = buffer->head;
 
-    // предыдущий индекс (последний записанный сэмпл)
-    int prev_index = (head - 1 + BUFFER_SIZE) % BUFFER_SIZE;
-    int curr_index = (head - 2 + BUFFER_SIZE) % BUFFER_SIZE;
+    int curr_index =
+        (head - 1 + BUFFER_SIZE) % BUFFER_SIZE;
 
-    float prev_value = buffer->samples[curr_index].value;
-    float curr_value = buffer->samples[prev_index].value;
+    int prev_index =
+        (head - 2 + BUFFER_SIZE) % BUFFER_SIZE;
 
+    float prev = buffer->samples[prev_index].value;
+    float curr = buffer->samples[curr_index].value;
 
-    float treshold = used_scope->signal_control_data.controlled_signal->current_treshold;
+    double t = buffer->samples[curr_index].time;
 
-    // ===== zero crossing вверх =====
-    if (prev_value < -treshold  && curr_value >= treshold)
+    float T = ctrl->controlled_signal->current_treshold;
+
+    // =========================================================
+    // 2. СМЫСЛ ГИСТЕРЕЗИСА
+    // =========================================================
+    //
+    // T — это НЕ “порог сигнала”
+    // T — это "мертвая зона шума"
+    //
+    // Мы используем его для:
+    // - подавления дрожания около нуля
+    // - стабилизации state machine
+
+    // =========================================================
+    // 3. СОСТОЯНИЕ СИСТЕМЫ
+    // =========================================================
+    //
+    // zc->state:
+    //   -1 = уверенно в отрицательной зоне
+    //   +1 = уверенно в положительной зоне
+    //
+    // Это НЕ сигнал, это память системы
+
+    // =========================================================
+    // 4. ОБНОВЛЕНИЕ "ОТРИЦАТЕЛЬНОГО СОСТОЯНИЯ"
+    // =========================================================
+    //
+    // Если мы достаточно глубоко ушли вниз,
+    // считаем, что сигнал точно "ниже нуля"
+
+    if (prev < -T)
     {
-        double t = buffer->samples[prev_index].time;
+        zc->state = -1;
+    }
+
+    // =========================================================
+    // 5. ОСНОВНОЕ СОБЫТИЕ (CROSSING)
+    // =========================================================
+    //
+    // Мы фиксируем переход ТОЛЬКО если:
+    //
+    // 1) раньше были в отрицательной зоне (state == -1)
+    // 2) сейчас вышли вверх за порог
+
+    if (curr > +T && zc->state == -1)
+    {
+        // =====================================================
+        // это момент пересечения (rising crossing)
+        // =====================================================
+        //
+        // Почему берем t от curr:
+        // - curr = уже "новая сторона сигнала"
+        // - это ближайшая дискретная точка перехода
 
         zc->times[zc->head] = t;
 
-        zc->head = (zc->head + 1) % MAX_ZERO_CROSSINGS_TO_CHECK;
+        zc->head =
+            (zc->head + 1) % MAX_ZERO_CROSSINGS_TO_CHECK;
 
         if (zc->count < MAX_ZERO_CROSSINGS_TO_CHECK)
             zc->count++;
+
+        printf("CROSS t=%f\n", t);
     }
+
+    // =========================================================
+    // 6. ОБНОВЛЕНИЕ ПОЛОЖИТЕЛЬНОГО СОСТОЯНИЯ
+    // =========================================================
+    //
+    // Если мы выше порога — считаем, что теперь уверенно "в плюсе"
+
+    if (curr > +T)
+        zc->state = +1;
+
+    // =========================================================
+    // ИТОГ ЛОГИКИ:
+    // =========================================================
+    //
+    // - сигнал входит в отрицательную зону → state = -1
+    // - затем выходит вверх → фиксируем crossing
+    // - затем закрепляем +1
 }
 
 
@@ -2252,81 +2340,167 @@ void scope_screen_gui_delete(Scope* used_scope)
 
 void scope_find_period(Scope* used_scope)
 {
-    // Берёт zero-crossing события (НЕ сигнал)
-    // считает интервалы между ними
-    // фильтрует мусор
-    // усредняет
-    // получает:
-    // period
-    // frequency
+    // =========================================================
+    // 1. ДОСТАЁМ ДАННЫЕ СИГНАЛА
+    // =========================================================
+    //
+    // signal_ctx — сюда складывается результат анализа
+    // crossings_ctx — это уже "событийный поток"
+    // (НЕ сигнал, НЕ буфер, а список фактов: "был переход")
 
-    scope_signal_control_ctx* signal_ctx = &used_scope->signal_control_data;
-    zero_crossing_ctx* crossings_ctx = &signal_ctx->zero_crossings;
+    scope_signal_control_ctx* signal_ctx =
+        &used_scope->signal_control_data;
 
-    // Если слишком мало пересечений — период определить нельзя
-    if (crossings_ctx->count < 4) return;
+    zero_crossing_ctx* crossings_ctx =
+        &signal_ctx->zero_crossings;
+
+    // =========================================================
+    // 2. ПРОВЕРКА: ДОСТАТОЧНО ЛИ СИГНАЛА ДЛЯ АНАЛИЗА
+    // =========================================================
+    //
+    // Почему нужно минимум 4:
+    // - 2 точки = один период (очень шумно)
+    // - 4 точки = минимум для усреднения 2 периодов
+    //
+    // Это базовая защита от случайных событий при старте
+
+    if (crossings_ctx->count < 4)
+        return;
+
+        
+    // =========================================================
+    // 3. БУФЕР ДЛЯ ИЗМЕРЕННЫХ ПЕРИОДОВ
+    // =========================================================
+    //
+    // Мы НЕ доверяем одному измерению dt,
+    // потому что:
+    // - jitter таймера
+    // - шум детектора
+    // - дискретизация
 
     double measured_periods[MAX_ZERO_CROSSINGS_TO_CHECK];
     int measured_period_count = 0;
 
-    // индекс последнего записанного пересечения
-    int latest_crossing_index = crossings_ctx->head;
+    // =========================================================
+    // 4. ИНДЕКС ПОСЛЕДНЕГО СОБЫТИЯ
+    // =========================================================
+    //
+    // head указывает на следующую свободную позицию,
+    // значит последнее событие = head - 1
 
-    // ============================================================
-    // Проходим по истории zero-crossing событий (с конца)
-    // ============================================================
-    for (
-        
-        int i = 0;
-        i < crossings_ctx->count - 1 && measured_period_count < MAX_ZERO_CROSSINGS_TO_CHECK;
-        i++
-        
-    )
+    int latest = crossings_ctx->head;
+
+    // =========================================================
+    // 5. (DEBUG) ВЫВОД ВСЕХ CROSSINGS
+    // =========================================================
+    //
+    // Это важно на этапе разработки:
+    // мы проверяем, что события идут равномерно
+
+    printf("\nCrossings:\n");
+
+    for (int i = 0; i < crossings_ctx->count; i++)
     {
-        // берём два соседних пересечения назад по времени
-        int current_index =
-            (latest_crossing_index - i - 1 + MAX_ZERO_CROSSINGS_TO_CHECK) % MAX_ZERO_CROSSINGS_TO_CHECK;
+        printf("[%d] %.9f\n", i, crossings_ctx->times[i]);
+    }
 
-        int previous_index =
-            (latest_crossing_index - i - 2 + MAX_ZERO_CROSSINGS_TO_CHECK) % MAX_ZERO_CROSSINGS_TO_CHECK;
+    // =========================================================
+    // 6. ОСНОВНОЙ ЦИКЛ АНАЛИЗА ПЕРИОДОВ
+    // =========================================================
+    //
+    // Логика очень простая:
+    // каждый соседний pair событий = один период
+    //
+    // crossing0 → crossing1 = T
+    // crossing1 → crossing2 = T
+    // ...
 
-        double current_time = crossings_ctx->times[current_index];
-        double previous_time = crossings_ctx->times[previous_index];
+    for (int i = 0; i < crossings_ctx->count - 1; i++)
+    {
+        // -----------------------------------------------------
+        // берём два СОСЕДНИХ события в кольцевом буфере
+        // -----------------------------------------------------
 
-        // разница времени между двумя последовательными пересечениями
-        double time_difference = current_time - previous_time;
+        int curr_index =
+            (latest - i - 1 + MAX_ZERO_CROSSINGS_TO_CHECK)
+            % MAX_ZERO_CROSSINGS_TO_CHECK;
 
-        // ========================================================
-        // Фильтр мусора:
-        // отбрасываем отрицательные и нереалистичные интервалы
-        // ========================================================
-        if (time_difference > 0.0 && time_difference < 10.0)
+        int prev_index =
+            (latest - i - 2 + MAX_ZERO_CROSSINGS_TO_CHECK)
+            % MAX_ZERO_CROSSINGS_TO_CHECK;
+
+        // -----------------------------------------------------
+        // извлекаем времена событий
+        // -----------------------------------------------------
+        //
+        // t1 - текущее событие
+        // t0 - предыдущее событие
+
+        double t1 = crossings_ctx->times[curr_index];
+        double t0 = crossings_ctx->times[prev_index];
+
+        // -----------------------------------------------------
+        // считаем разницу времени
+        // -----------------------------------------------------
+        //
+        // ЭТО И ЕСТЬ ОЦЕНКА ПЕРИОДА (raw measurement)
+
+        double dt = t1 - t0;
+
+        // -----------------------------------------------------
+        // sanity check (защита от мусора)
+        // -----------------------------------------------------
+        //
+        // Почему нужно:
+        // - возможен reset буфера
+        // - возможны редкие шумовые события
+        // - защита от отрицательных значений
+
+        if (dt > 0.0 && dt < 10.0)
         {
-            measured_periods[measured_period_count++] = time_difference;
+            measured_periods[measured_period_count++] = dt;
         }
     }
 
-    // если не удалось получить ни одного валидного периода
-    if (measured_period_count == 0) return;
+    // =========================================================
+    // 7. ЕСЛИ НЕТ ДАННЫХ — ВЫХОД
+    // =========================================================
 
-    // ============================================================
-    // Усреднение всех измеренных периодов
-    // ============================================================
-    double period_sum = 0.0;
+    if (measured_period_count == 0)
+        return;
+
+    // =========================================================
+    // 8. УСРЕДНЕНИЕ ПЕРИОДОВ
+    // =========================================================
+    //
+    // Почему просто average:
+    // - у тебя уже есть фильтрация в детекторе
+    // - jitter мал
+    // - это realtime scope, не FFT
+
+    double sum = 0.0;
 
     for (int i = 0; i < measured_period_count; i++)
     {
-        period_sum += measured_periods[i];
+        sum += measured_periods[i];
     }
 
-    double average_period = period_sum / measured_period_count;
+    double average_period =
+        sum / measured_period_count;
 
-    // ============================================================
-    // Обновление результата анализа сигнала
-    // ============================================================
+    // =========================================================
+    // 9. ОБНОВЛЕНИЕ РЕЗУЛЬТАТА
+    // =========================================================
+    //
+    // period — физически измеренная величина
+    // frequency — производная величина
+
     signal_ctx->current_period_value = average_period;
 
-    signal_ctx->current_frequency_value = (average_period > 0.0) ? (1.0 / average_period) : 0.0;
+    signal_ctx->current_frequency_value =
+        (average_period > 0.0)
+        ? (1.0 / average_period)
+        : 0.0;
 }
 
 

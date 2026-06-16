@@ -65,6 +65,38 @@ typedef struct scope_buffer {
 } scope_buffer_ctx;
 
 
+typedef struct zero_crossing_ctx
+{
+    double times[MAX_ZERO_CROSSINGS_TO_CHECK];
+
+    int head;
+    int count;
+
+    int state; // -1 = below, +1 = above
+
+} zero_crossing_ctx;
+
+
+// RAW → ANALYSIS → VIEW (DISPLAY) → PIXELS
+typedef struct signal_render_point
+{
+
+    int x;
+    int y;
+    bool show;
+
+} signal_render_point;
+
+
+typedef struct signal_render_ctx
+{
+
+    signal_render_point points[RENDER_POINTS_BUFFER_SIZE];        // динамический массив
+    int size;                                                     // сколько точек (ширина дисплея)
+
+} signal_render_ctx;
+
+
 // ===== Scope mode enum =====
 
 typedef enum scope_state
@@ -137,25 +169,6 @@ typedef enum controlled_signal_type
     
 } controlled_signal_type;
 
-
-// RAW → ANALYSIS → VIEW (DISPLAY) → PIXELS
-typedef struct signal_render_point
-{
-
-    int x;
-    int y;
-    bool show;
-
-} signal_render_point;
-
-
-typedef struct signal_render_ctx
-{
-
-    signal_render_point points[RENDER_POINTS_BUFFER_SIZE];        // динамический массив
-    int size;                                                     // сколько точек (ширина дисплея)
-
-} signal_render_ctx;
 
 
 // ===== Scope render data =====
@@ -889,15 +902,6 @@ typedef struct scope_main_settings
 } scope_main_settings_ctx;
 
 
-typedef struct zero_crossing_ctx
-{
-    double times[MAX_ZERO_CROSSINGS_TO_CHECK];
-
-    int head;
-    int count;
-
-} zero_crossing_ctx;
-
 
 typedef struct scope_signal_control_ctx
 {
@@ -932,9 +936,9 @@ typedef struct Scope {
 
     scope_main_settings_ctx main_settings;           // Основные настройки осциллографа (в данной версии - режим отображения и кол-во периодов для отображения в режиме с фикс. кол-вом)
 
-    scope_signal_control_ctx signal_control_data;   // Данные контролируемого сигнала
+    scope_signal_control_ctx signal_control_data;    // Данные контролируемого сигнала
 
-    scope_render_ctx scope_render_data;             // Данные для рендеринга
+    scope_render_ctx scope_render_data;              // Данные для рендеринга
 
 } Scope;
 
