@@ -150,6 +150,7 @@ void scope_buffer_update(Scope* used_scope)
     scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
     scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
 
+
     if (!ctrl->controlled_signal) return;
 
     // Ничего не делаем, если выключен
