@@ -251,7 +251,7 @@ void scope_buffer_analysis_1(Scope* used_scope)
 ___
 
 
-2. Поступивший сигнал передаётся на анализ детектору событий - экстремумы, переход через ноль
+3. Поступивший сигнал передаётся на анализ детектору событий - экстремумы, переход через ноль
 
 ___
 
@@ -263,16 +263,16 @@ ___
 
 это почти одинаковые задачи которые нужны для одного и того же: 
 
-1) либо найти период а потом найти экстремумы 
-2) либо найти экстремумы и потом найти период 
+   1) либо найти период а потом найти экстремумы 
+   2) либо найти экстремумы и потом найти период 
    
 Есть правда такая тема, что сигнал может быть апериодичным соответственно в любом случае нам надо искать экстремумы ещё и отдельно
 
 После блока 1–4 ты имеешь:
 
-running_dc        → центр сигнала
-sigma             → шум
-threshold         → зона неопределённости
+    running_dc        → центр сигнала
+    sigma             → шум
+    threshold         → зона неопределённости
 
 Это означает:
 
@@ -280,7 +280,7 @@ threshold         → зона неопределённости
 
 ___
 
-    2.1. PEAK-детектор
+    3.1. PEAK-детектор
 
     Поиск пиков - не поиск максимума и минимума.
 
@@ -570,7 +570,7 @@ void scope_buffer_analysis_2(Scope* used_scope)
 
 ___
 
-    2.2. extremum детектор
+    3.2. running-extremum детектор
 
 Вводим
 
@@ -697,7 +697,7 @@ if (ctrl->trend == RISING &&
 
 ```
 
-Итоговый детектор
+Итоговый детектор min-max
 
 ``` cpp
 // 2.2. extremum детектор (финальный слой)
@@ -809,8 +809,7 @@ void scope_buffer_analysis_3(Scope* used_scope)
     {
         float rise = x - ctrl->min_candidate;
 
-        if (rise > ctrl->k_threshold * sigma &&
-            ctrl->min_confidence > ctrl->min_confidence_threshold)
+        if (rise > ctrl->k_threshold * sigma && ctrl->min_confidence > ctrl->min_confidence_threshold)
         {
             ctrl->last_confirmed_min = ctrl->min_candidate;
         }
@@ -827,17 +826,334 @@ void scope_buffer_analysis_3(Scope* used_scope)
 
 ```
 
-
 ___
 
-    2.3. zero-cross детектор
+    3.3. zero-cross детектор
 
-    Поиск пиков - не поиск максимума и минимума.
+    
+    Поскольку threshold задаётся симметрично относительно running_dc,
+    время перехода через истинный ноль оценивается как среднее между
+    моментами пересечения нижней и верхней границы зоны гистерезиса:
+
+    zero_cross_time = (t_dc_minus_threshold + t_dc_plus_threshold) / 2
+
+    Такое усреднение дополнительно уменьшает влияние шума и дрожания
+    момента пересечения.
+
+    Слой 1 — адаптация зоны
+    threshold = f(sigma)
+
+    Слой 2 — коррекция времени внутри зоны
+    t_cross = (t_low + t_high) / 2
+
+    И вот вместе они дают устойчивость. Качество детекции = функция (threshold, sigma, модель времени фронта)
+
+    zero-cross детектор используется для поиска периода сигнала. Основная сложность заключается в том, что некоторые сигналы имеют период с несколькими разнонаправленными переходами через 0.
+    Осциллограф с автоопределением периода обязан фиксировать паттерн сигнала и выводить на экран n-периодов сигнала.
+
+    zero-cross детектор должен принимать дату о нисходящих и восходящих переходах сигнала через dc_offset - treshold и dc_offset + treshold, рассчитанных после EMA-фильтра (при этом - только сигналов в рамках доверия), фиксируя 2 временных метки перехода, по которым можно усредненно вычислить время настоящего перехода (без шумов). Передача значений в zero-cross-детектор может идти прямо из void scope_buffer_analysis_2(Scope* used_scope), к примеру, можно снабдить осциллограф буффером на базе цепи структур:
+
+    Что считается завершённым переходом
+
+    Например:
+
+        Для RISING:
+
+           1) пересек dc-th
+
+           2) НЕ вернулся обратно
+
+           3) пересек dc+th
+
+           4) переход завершён
+
+        Для FALLING:
+
+            5) пересек dc+th
+
+            6) НЕ вернулся обратно
+
+            7) пересек dc-th
+
+            8) переход завершён
+
+
+    ``` cpp
+
+        // Очищенное время перехода, вычисленное на базе суммы t деленной на 2,
+        // от переходов без смены курса, через dc_offset - treshold и dc_offset + treshold
+        typedef struct cleaned_zero_cross
+        {
+
+            trend_type zero_cross_type;         // RISING (из - в +) или FALLING (из + в -)
+            double time;                        // Время прохода
+
+        } cleaned_zero_cross;
+            
+        
+        // Контекст анализатора переходов, который хранит данные
+        // о переходах и выводит их обработку в буффер zero_crosses_detector с
+        // определенным количеством точек cleaned_zero_cross, к примеру - 128 точками
+
+        // Двухпороговый захват времени с переобновлением текущей границы при повторных входах
+        typedef struct zero_cross_buffer_analyser
+        {
+
+            /*
+
+                я зашел в 1 зону, у меня rised_without_fall стоит false, сколько раз я бы не дропался и не возвращалолся,
+                пока он false я просто обновляю rising_dc_minus_th_time на новое при новом заходе, как только я пересекаю 
+                dc_offset + treshold, я ставлю rised_without_fall, как true, ставлю , ставлю falled_without_rise, как false
+                и curr_waited_type переключаю на FALLING
+
+            */
+
+            trend_type curr_waited_type;        // ждем RISING или FALLING переход через 0 следующим
+
+            double rising_dc_minus_th_time;     // Время перехода через dc_offset - trashold
+
+            // При повторном входе в текущую границу (dc - threshold или dc + threshold)
+            // время перехода перезаписывается, так как фиксируется
+            // последняя точка устойчивого входа в зону гистерезиса
+            
+
+            bool rised_without_fall;            // Флаг для сброса времени rising_dc_minus_th_time;
+
+            double rising_dc_plus_th_time;      // Время перехода через dc_offset + treshold
+
+            bool rising_zero_cross_finished;    // Флаг для отображения окончания восходящего перехода через 0     
+
+            double falling_dc_plus_th_time;     // Время перехода через dc_offset + trashold
+
+            bool falled_without_rise;          // Флаг для сброса времени falling_dc_plus_th_time;
+
+            double falling_dc_minus_th_time;    // Время перехода через dc_offset - treshold
+
+            bool falling_zero_cross_finished;   // Флаг для отображения окончания нисходящего перехода через 0
+            
+            
+            // Если один из флагов rising_zero_cross_finished или falling_zero_cross_finished выставляется
+            // в true - идёт расчёт времени перехода, присвоение false второму флагу, смена 
+            // curr_waited_type и отправка данных о времени текущего перехода и его характере 
+            // в кольцевой буффер zero_crosses[128] у zero_crosses_detector, через head буффера
+
+            // если начат переход
+            // и тренд сменился
+
+            // → отменить переход
+            // → очистить временные метки
+            // → ждать заново
+
+
+        } zero_cross_buffer_analyser;
+
+
+        // Хранит данные о последних 64 (128 / 2) вычищенных от шума последовательностях
+        // перехода через 0
+        typedef struct zero_crosses_detector 
+        {
+            zero_cross zero_crosses[128];
+
+            int head;
+            int count;
+
+        } zero_crosses_detector;
+
+    ```
+    
+   Обозначенные действия должны производиться на максимальной скорости работы вычислительного устройства, после действий (из void scope_buffer_analysis_2(Scope* used_scope)): 
+
+    ``` cpp
+    // =========================================================
+        // 7. EVENT DETECTION (peak/trough commit)
+        // =========================================================
+
+        if (ctrl->trend != ctrl->prev_trend &&
+            ctrl->trend_confidence > ctrl->min_confidence)
+        {
+            // -------------------------
+            //          PEAK
+            // -------------------------
+            if (ctrl->prev_trend == 1)
+            {
+                if (strength > ctrl->k_threshold)
+                {
+                    ctrl->last_peak = ctrl->peak_candidate;
+                    ctrl->last_peak_time = t;
+                    ctrl->last_peak_confidence = ctrl->trend_confidence;
+                }
+            }
+
+            // -------------------------
+            //          TROUGH
+            // -------------------------
+            if (ctrl->prev_trend == -1)
+            {
+                if (fabsf(strength) > ctrl->k_threshold)
+                {
+                    ctrl->last_trough = ctrl->trough_candidate;
+                    ctrl->last_trough_time = t;
+                    ctrl->last_trough_confidence = ctrl->trend_confidence;
+                }
+            }
+
+            // reset candidates
+            ctrl->peak_candidate = x;
+            ctrl->trough_candidate = x;
+
+            ctrl->prev_trend = ctrl->trend;
+        }
+
+    ```
+
+
+    3.4. period-детектор
+
+
+    Далее, по текущему буфферу zero_crosses_detector становится возможно на более низкой скорости (к примеру - 240 Гц - в 4 раза чаще обновления дисплея) определять паттерн периода и его значение (также - значение частоты, а далее - значения амплитуд на периоде (не running, а просто по ограниченному куску основного буффера &used_scope->signal_control_data.scope_buffer_data))
+
+
+    ```cpp
+
+        void scope_period_detection(Scope* used_scope)
+        {
+
+            zero_crosses_detector scope_detector = &used_scope->signal_control_data.scope_zero_cross_detector;
+
+            // Понять по значениям времен переходов через 0 и их характеру паттерн периода
+
+            // Вычислить период
+
+            // Вычислить частоту
+
+            // Обновить значения measured_period и measured_frequency в памяти осциллографа
+
+        }
+
+    ```
+
+
+    3.4. measured_extreme-детектор
+
+    Далее, по найденному периоду возможно без особых затрат (для быстрых сигналов, для медленных - переиспользовать running значения) вычислить экстремумы и амплитуды, пользуясь участком буффера (head - 4T), примерно, как тут:
+
+
+    ```cpp
+
+    void scope_find_extreme(Scope* used_scope)
+    {
+        scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
+        scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
+
+        if (buffer->count < 4) return;
+        if (ctrl->current_frequency_value <= 0.0f) return;
+
+        int head = buffer->head;
+
+        // =========================================================
+        // 1. определяем окно ~ 3 периода сигнала
+        // =========================================================
+
+        double freq = (double)ctrl->current_frequency_value;
+
+        int samples_per_period = (int)(SCOPE_SAMPLE_RATE / freq);
+        int window_size = samples_per_period * 3;
+
+        if (window_size < 10)
+            window_size = 10;
+
+        if (window_size > buffer->count)
+            window_size = buffer->count;
+
+        // =========================================================
+        // 2. границы кольцевого окна
+        // =========================================================
+
+        int start = (head - window_size + BUFFER_SIZE) % BUFFER_SIZE;
+        int end   = (head - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+
+        // =========================================================
+        // 3. поиск min/max
+        // =========================================================
+
+        float min_value = FLT_MAX;
+        float max_value = -FLT_MAX;
+
+        int i = start;
+
+        while (1)
+        {
+            float v = buffer->samples[i].value;
+
+            if (v < min_value) min_value = v;
+            if (v > max_value) max_value = v;
+
+            if (i == end)
+                break;
+
+            i = (i + 1) % BUFFER_SIZE;
+        }
+
+        ctrl->current_min_signal_value = min_value;
+        ctrl->current_max_signal_value = max_value;
+
+        // =========================================================
+        // 4. амплитуда
+        // =========================================================
+
+        float raw_amplitude = (max_value - min_value) * 0.5f;
+
+        // первый запуск
+        if (!ctrl->amplitude_initialized)
+        {
+            ctrl->amplitude_estimate = raw_amplitude;
+            ctrl->amplitude_initialized = true;
+        }
+        else
+        {
+            // ОДНО сглаживание (важно: убрали двойное)
+            ctrl->amplitude_estimate =
+                0.85f * ctrl->amplitude_estimate +
+                0.15f * raw_amplitude;
+        }
+
+        if (ctrl->amplitude_estimate < 0.001f)
+            ctrl->amplitude_estimate = 0.001f;
+
+        // =========================================================
+        // 5. обновление threshold (не каждый вызов!)
+        // =========================================================
+
+        ctrl->threshold_update_accumulator++;
+
+        const int THRESHOLD_UPDATE_RATE = 10;
+
+        if (ctrl->threshold_update_accumulator >= THRESHOLD_UPDATE_RATE)
+        {
+            float zc_threshold = ctrl->amplitude_estimate * 0.02f;
+
+            if (zc_threshold < 0.001f)
+                zc_threshold = 0.001f;
+
+            ctrl->controlled_signal->current_treshold = zc_threshold;
+
+            ctrl->threshold_update_accumulator = 0;
+        }
+    }
+
+    ```
+
+
+### Обновление фильтра и доверия по найденным значениям
+
+4. После завершения measuring-части прохода цикла, необходимо внести корректировки в параметры обратной связи...
 
 
 
 
-## Инфа
+
+
+## Общая Инфа
 Главный компромисс: Скорость vs. Фазовый сдвиг (Lag)
 
 Любая система на базе EMA (экспоненциального сглаживания) страдает от фундаментальной проблемы: чем сильнее мы хотим отфильтровать шум, тем сильнее мы опаздываем за реальным сигналом.Если сделать \(\alpha \) большим (быстрая реакция), система выдаст актуальные данные «прямо сейчас», но будет бешено реагировать на случайные ложные всплески (рыночные манипуляции или электромагнитные наводки).Если сделать \(\alpha \) маленьким (гладкий тренд/линия нуля), система станет стабильной, но «узнает» о смене тренда или пробитии уровня с опозданием (фазовым сдвигом). 
