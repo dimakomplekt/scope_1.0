@@ -7,7 +7,7 @@
 <img src="2.bmp" alt="Сигналы 2">
 
 
-## EMA
+## EMA - основной алгоритм пайплайна
 
 EMA — это среднее значение, которое обновляется по мере прихода новых данных, но “забывает” старые значения всё быстрее и быстрее со временем.
 
@@ -59,15 +59,172 @@ EMA — это среднее значение, которое обновляе�
     отсутствие необходимости хранить буфер
     O(1) вычисления на sample
 
-___
 
-## Приём RAW значений
+## SIGMA — модель нестабильности сигнала
 
-1. Осциллограф при подключении сигнала всегда принимает каждый такт программы какое-то value и time его приёма, обновляя основной голый буффер RAW_BUFFER = [value, time]. Буфер хранит историю сигнала без изменений (истинная “реальность” системы).
+Sigma — это оценка того, насколько сильно сигнал обычно отклоняется от своего центра (DC-offset).
 
-___
+Если EMA говорит “где центр”, то σ отвечает на вопрос:
 
-## Первая зона обработки сигнала
+    насколько далеко сигнал обычно от этого центра гуляет сам по себе
+
+Потоковая формула (running sigma) - вместо хранения всей истории используется инкрементная оценка дисперсии:
+
+    diff = x - dc;
+    sigma² = sigma² + β * (diff * diff - sigma²);
+
+или:
+
+    sigma = sqrt(sigma²);
+
+σ — это не “математическая абстракция”, а:
+
+    ширина нормального поведения сигнала
+
+        маленькая σ → сигнал “спокойный”, почти ровная линия
+        большая σ → сигнал “нервный”, шумный, дерганый
+
+
+### Что означает σ в системе
+
+σ используется как:
+
+    оценка шума
+    оценка доверия к отклонениям
+    масштаб нормализации сигнала
+
+
+Нормализованное отклонение
+
+    strength = (x - dc) / (sigma + ε);
+
+
+Теперь сигнал измеряется не в “вольтах”, а в:
+
+    сигма-единицах отклонения
+
+Интерпретация strength
+
+    0.0 → центр
+    1.0 → обычное отклонение
+    2.0 → заметное событие
+    3.0+ → почти гарантированный “инцидент”
+    < 0 → ниже центра
+
+
+Почему σ важнее абсолютных значений:
+
+    один и тот же сигнал может быть шумным или чистым
+    фиксированный порог не работает в реальном мире
+
+σ делает систему адаптивной:
+
+    один и тот же скачок может быть шумом или событием — в зависимости от контекста
+
+
+## TRESHOLD — динамическая граница события
+
+Threshold — это не фиксированный порог, а:
+
+    адаптивная граница, отделяющая шум от значимого изменения
+
+Базовая формула
+
+    threshold = k * sigma;
+
+Threshold — это:
+
+    “насколько сильно сигнал должен шевельнуться, чтобы мы поверили, что это не шум”
+
+Как он ведёт себя
+
+    σ маленькая → threshold маленький → система чувствительная
+    σ большая → threshold большой → система “осторожная”
+
+Смысл k
+
+    k — это коэффициент уверенности системы
+    k = 0.5 → агрессивная детекция (ловит всё)
+    k = 2.0 → консервативная (только сильные события)
+    k = 3.0+ → почти “финансовый фильтр истины”
+
+Главное свойство threshold
+
+    он не фиксирует события, он регулирует доверие к событиям
+
+
+## Связка EMA / SIGMA / TRESHOLD
+
+Если собрать в одну систему:
+
+    EMA                 - где находится центр сигнала
+    σ                   - насколько сигнал шумный
+    threshold           - насколько мы готовы верить отклонению
+
+
+Итоговая логика системы
+
+    x (raw signal)
+          ↓
+    EMA → центр
+          ↓
+    σ → шумовая ширина
+          ↓
+    threshold = k·σ
+          ↓
+    decision: if |x - EMA| > threshold → EVENT
+
+
+Ключевая идея всей тройки
+
+Это не три формулы. Это один механизм восприятия сигнала:
+
+    EMA: “что считается нормой”
+    σ: “насколько норма размыта”
+    threshold: “где заканчивается допустимое”
+
+
+## Общий паттерн пайплайна первичной обработки сигнала 
+
+    RAW samples
+    ↓
+    dc / sigma / trend (статистика момента)
+    ↓
+    zero-cross events (точки смены знака)
+    ↓
+    halfwaves (интервалы между событиями)
+    ↓
+    pattern (структура повторений)
+    ↓
+    period (глобальная периодичность)
+
+
+```
+
+блок	            цель
+EMA	                понять центр
+sigma	            понять шум
+zero-cross	        найти границы событий
+halfwave	        превратить поток в сегменты
+pattern	            найти повтор структуры
+
+```
+
+Время вызовов
+
+```
+
+EMA: каждый sample
+zero-cross: событие
+halfwave: 1–2 события
+pattern: десятки событий
+
+```
+
+
+## 0. Первая зона обработки сигнала - Приём RAW значений
+
+Осциллограф при подключении сигнала всегда принимает каждый такт программы какое-то value и time его приёма, обновляя основной голый буффер RAW_BUFFER = [value, time]. Буфер хранит историю сигнала без изменений (истинная “реальность” системы).
 
 На каждом новом sample параллельно запускается вычисление потоковой модели сигнала.
 
@@ -75,7 +232,7 @@ ___
 
 ___
 
-2. Поступивший сигнал дублируется с работающим на каждом такте калькулятором running-значений на базе EMA - СИСТЕМЫ ДОВЕРИЯ к значениям и поиска уровня шумов SIGMA. Вычисления производятся инкрементально на базе лишь текущего head - 1 буффера
+## 1. Поступивший сигнал дублируется с работающим на каждом такте калькулятором running-значений на базе EMA - СИСТЕМЫ ДОВЕРИЯ к значениям и поиска уровня шумов SIGMA. Вычисления производятся инкрементально на базе лишь текущего head - 1 буффера
 
 
     1) running mean - mean ≈ EMA(x)
@@ -95,7 +252,7 @@ ___
 
 ___
 
-    1.1. Running mean (EMA)
+### 1.1. Running mean (EMA)
 
     что делаем на каждом sample:
 
@@ -109,7 +266,7 @@ ___
 
 ___
 
-    1.2. Running median (аппроксимация)
+### 1.2. Running median (аппроксимация)
 
         Нет полной сортировки!
 
@@ -128,7 +285,7 @@ ___
 
 ___
 
-    1.3 DC-offset (рабочий центр)
+### 1.3 DC-offset (рабочий центр)
 
         dc = blend(mean, median);
 
@@ -140,7 +297,7 @@ ___
 
 ___
 
-    1.4 Sigma (шумовая модель) - оценка того, насколько сильно сигнал “размазан” вокруг центра (dc) (средний квадрат отклонения от центра)
+### 1.4 Sigma (шумовая модель) - оценка того, насколько сильно сигнал “размазан” вокруг центра (dc) (средний квадрат отклонения от центра)
 
         β — это скорость обучения sigma
         diff - текущее измерение “шума”
@@ -176,9 +333,9 @@ ___
 
 ___
 
-### Примерный цикл прохода 1 от buffer[head - 1]:
+Примерный цикл прохода 1 от buffer[head - 1]:
 
-```cpp
+```c
 
 // вход: новый sample
 void scope_buffer_analysis_1(Scope* used_scope)
@@ -254,8 +411,236 @@ void scope_buffer_analysis_1(Scope* used_scope)
 
 ___
 
+## Простыми словами
 
-3. Поступивший сигнал передаётся на анализ детектору событий - экстремумы, переход через ноль
+### Всего 3 простые вещи:
+
+1:
+
+```
+
+“Где находится сигнал сейчас”
+
+Это твой блок:
+
+running_mean
+running_median
+running_dc
+
+смысл:
+“где центр этого хаоса”
+
+```
+
+2:
+
+```
+“Насколько всё шумит”
+
+Это:
+
+sigma
+threshold = k * sigma
+
+смысл:
+“можно ли этому вообще верить”
+
+```
+
+3:
+
+```
+“Что происходит прямо сейчас”
+
+Это:
+
+trend
+velocity (x - x_prev)
+peak / trough / zero-cross
+
+смысл:
+“событие или просто дрожание”
+
+```
+
+### Итого:
+
+```
+Вся система = 3 вопроса
+
+Не формулы. Не EMA. Не сигма.
+
+А вот это:
+
+где центр?
+насколько шумно?
+это движение или событие?
+
+
+Всё вместе:
+
+    фильтры
+    экстремумы
+    confidence
+    sigma
+    тренды
+
+Но на самом деле это слои одного ответа:
+
+    raw signal
+    ↓
+    center estimation
+    ↓
+    noise estimation
+    ↓
+    normalized signal
+    ↓
+    event decision
+
+```
+
+### Сами коэффициенты:
+
+```
+реально:
+
+σ — это просто “разброс”
+EMA — это просто “память” о среднем
+threshold — это просто “граница уверенности” в значениях близких к dc-offset
+
+
+🧪 σ (sigma) — это не формула, а “раздражённость сигнала”
+
+    Забудь на секунду про корни и квадраты.
+
+        Standard Deviation
+
+        Представь:
+
+            сигнал = животное, бегающее вокруг центра (running_dc)
+            иногда он спокойно дрожит около точки
+            иногда его “колбасит”
+
+    👉 σ отвечает на один вопрос:
+
+        “насколько обычно этот сигнал шатается сам по себе?”
+
+
+Интуиция:
+
+    σ маленькая → сигнал спокойный, почти стеклянный
+    σ большая → сигнал нервный, хаотичный
+
+
+В твоей системе:
+    маленькая σ → даже маленькое отклонение = событие
+    большая σ → нужно сильное движение, чтобы считать это событием
+
+
+
+🧠 EMA — это не формула, а “память с амнезией”
+
+    Exponential Moving Average
+
+        Это не “среднее”.
+
+    Это:
+
+        “что сигнал делал недавно, но с забыванием прошлого”
+
+    Интуиция:
+
+        старые значения → почти забываются
+        свежие → доминируют
+
+    Метафора: как человек, который:
+
+        помнит последние шаги чётко
+        но прошлую неделю уже смутно
+
+    В твоём коде:
+        running_mean += alpha * (x - running_mean);
+
+    это значит:
+
+        “подвинь мнение чуть-чуть в сторону нового наблюдения”
+
+🚧 threshold — это не число, а “разрешение на событие”
+
+    Statistical Thresholding
+
+    Вот здесь самое важное понимание.
+
+    Ты думаешь:
+
+        “порог = фиксированное число”
+
+    Но у тебя уже не так.У тебя:
+
+        threshold = k * sigma;
+
+    значит:
+
+        “порог живой, он зависит от шума”
+
+    Интуиция:
+
+        если сигнал шумный → ты становишься осторожным
+        если сигнал чистый → ты становишься чувствительным
+
+
+🧩 Теперь главное: как они связаны
+
+Это вообще один организм:
+
+    1. EMA говорит:
+
+        “где сейчас центр мира”
+
+    2. σ говорит:
+
+        “насколько мир дрожит”
+
+    3. threshold говорит:
+
+        “насколько сильное событие мы вообще считаем событием”
+
+⚡ Самая важная мысль (без неё всё разваливается)
+
+Ты не ищешь:
+
+    “точный максимум”
+    “точный zero-cross”
+    “идеальный пик”
+
+Ты ищешь:
+
+    устойчивое отклонение от текущей статистической реальности
+
+
+Почему это кликает в голове только сейчас
+
+Потому что раньше ты думал:
+
+    “есть сигнал”
+    “есть алгоритм”
+
+А теперь у тебя другая модель:
+
+    сигнал = среда + шум + события + уверенность
+
+
+Если упростить до одной строки
+
+    **EMA** = где ты думаешь центр
+
+    **σ ** = насколько ты ошибаешься
+
+    **threshold** = когда ты перестаёшь сомневаться
+
+```
+
+## 2. Поступивший сигнал передаётся на анализ детектору событий - экстремумы, переход через ноль
 
 ___
 
@@ -284,7 +669,7 @@ ___
 
 ___
 
-    3.1. PEAK-детектор
+### 2.1. PEAK-детектор
 
     Поиск пиков - не поиск максимума и минимума.
 
@@ -293,7 +678,7 @@ ___
 
 Для детектора пиков имеются
 
-```cpp
+```c
 
 int trend;
 int prev_trend;
@@ -308,7 +693,7 @@ float last_trough;
 
 Логика тренда
 
-```cpp
+```c
 
 if (x > x_prev) trend = RISING;
 
@@ -318,7 +703,7 @@ else if (x < x_prev) trend = FALLING;
 
 Накопление кандидатов:
 
-```cpp
+```c
 
 if (trend == RISING) if (x > peak_candidate) peak_candidate = x;
 
@@ -328,7 +713,7 @@ if (trend == FALLING) if (x < trough_candidate) rough_candidate = x;
 
 Фиксация пика:
 
-```cpp
+```c
 
 if (trend != prev_trend)
 {
@@ -355,7 +740,7 @@ if (trend != prev_trend)
 
 Применение трешхолда и сигмы!
 
-```cpp
+```c
 
 if (abs(x - running_dc) > threshold)
 
@@ -365,7 +750,7 @@ peak_valid = (peak - running_dc) > k * sigma;
 
 Для анализа пиков и других точек добавляяются
 
-```cpp
+```c
 
 float trend_confidence;
 float last_event_confidence;
@@ -375,7 +760,7 @@ float last_event_confidence;
 
 Используются, как
 
-``` cpp
+``` c
 
 if (x > x_prev)
     ctrl->trend_confidence += 1;
@@ -399,7 +784,7 @@ if (ctrl->trend == FALLING &&
 
 Итоговый детектор
 
-``` cpp
+``` c
 void scope_buffer_analysis_2(Scope* used_scope)
 {
     scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
@@ -574,11 +959,11 @@ void scope_buffer_analysis_2(Scope* used_scope)
 
 ___
 
-    3.2. running-extremum детектор
+### 2.2. running-extremum детектор
 
 Вводим
 
-``` cpp
+``` c
 
 float max_candidate;
 float min_candidate;
@@ -596,7 +981,7 @@ float last_confirmed_min;
 
 Чекаем
 
-``` cpp
+``` c
 
 velocity = (x - prev_x)
 
@@ -625,7 +1010,7 @@ confidence -= abs(acceleration)
 
 Обновление на примере максимума:
 
-``` cpp
+``` c
 
 // Обновление
 if (ctrl->trend == RISING)
@@ -665,7 +1050,7 @@ if (ctrl->trend == FALLING && ctrl->max_confidence > ctrl->min_confidence)
 
 Обновление кандидата минимума
 
-``` cpp
+``` c
 // Обновление минимума
 if (ctrl->trend == FALLING)
 {
@@ -701,9 +1086,9 @@ if (ctrl->trend == RISING &&
 
 ```
 
-Итоговый детектор min-max
+### 2.3. Итоговый детектор min-max
 
-``` cpp
+``` c
 // 2.2. extremum детектор (финальный слой)
 // цель: выбрать ДЕЙСТВИТЕЛЬНЫЕ max/min среди кандидатов из analysis_2
 void scope_buffer_analysis_3(Scope* used_scope)
@@ -832,7 +1217,7 @@ void scope_buffer_analysis_3(Scope* used_scope)
 
 ___
 
-    3.3. zero-cross детектор + period детектор
+## 3. zero-cross детектор + period детектор
 
 Адекватное определение периода периодичного сигнала имеет различную сложность, в зависимости от вида рассматриваемого сигнала.
 
@@ -901,7 +1286,7 @@ Halfwave-детектор
         5) Обновить на базе measured значений текущие фильтры шума и показатели доверия 
 
 
-    3.3.1 Zero-cross - детектор
+### 3.1 Zero-cross - детектор
 
 Поскольку threshold задаётся симметрично относительно running_dc,
 время перехода через истинный ноль оценивается как среднее между
@@ -950,7 +1335,16 @@ Halfwave-детектор
 Для реализации заявленного паттерн-детектора примеру, можно снабдить осциллограф буффером на базе цепи структур:
 
 
-    ``` cpp
+
+    ``` c
+
+        typedef enum trend_type
+        {
+            RISING_TT,
+            FALLING_TT
+
+        }
+
 
         // Очищенное время перехода, вычисленное на базе суммы t деленной на 2,
         // от переходов без смены курса, через dc_offset - treshold и dc_offset + treshold
@@ -965,11 +1359,11 @@ Halfwave-детектор
 
 
         // Данные о полуволне, по которым возможно провести анализ паттерна
-        typedef struct halfwave_zero_crosses_ctx
+        typedef struct halfwave_zero_cross_ctx
         {
             // За 1 проход на приёме данных от buffer_former
 
-            trend_type halfwave_type;                   // Характер полуволны
+            trend_type halfwave_type;                   // Характер полуволны 
 
             double start_time;
             double end_time;
@@ -986,7 +1380,7 @@ Halfwave-детектор
             float halfwave_area;                        // Примерная площадь этой полуволны (по главному буфферу от head - до head.halfwave_full_time)
             float halfwave_average_speed;               // Примерная средняя скорость изменения значений в этой полуволне (по главному буфферу от head - до head.halfwave_full_time)
 
-        } halfwave_zero_crosses_ctx;
+        } halfwave_zero_cross_ctx;
             
         
         // Контекст анализатора переходов, который хранит данные
@@ -1019,7 +1413,7 @@ Halfwave-детектор
 
             wave_pattern_buffer_former_states buffer_former_state;        // Переход какой точки RISING или FALLING через 0 ожидается на приход в формер
 
-            halfwave_zero_crosses_ctx curr_halfwave;                    // Текущая анализируемая полуволна, которая при окончании анализа будет передана в zero_crosses_detector
+            halfwave_zero_cross_ctx curr_halfwave;                    // Текущая анализируемая полуволна, которая при окончании анализа будет передана в zero_crosses_detector
 
 
             // Инкрементальный счётчик, демонстрирующий на сколько тиков мы ушли от head основного буффера сигнала в 
@@ -1072,7 +1466,7 @@ Halfwave-детектор
         // Хранит данные о последних 64 (128 / 2) вычищенных от шума полуволны с их показателями
         typedef struct wave_pattern_detector_ctx 
         {
-            halfwave_zero_crosses_ctx halfwaves_for_detection[64];
+            halfwave_zero_cross_ctx halfwaves_for_detection[64];
 
             int head;
             int count;
@@ -1084,7 +1478,7 @@ Halfwave-детектор
     
    Обозначенные действия должны производиться на максимальной скорости работы вычислительного устройства, после действий (из void scope_buffer_analysis_2(Scope* used_scope)): 
 
-    ``` cpp
+    ``` c
     // =========================================================
         // 7. EVENT DETECTION (peak/trough commit)
         // =========================================================
@@ -1130,7 +1524,7 @@ Halfwave-детектор
     ```
 
 
-    3.3.2 period-детектор
+### 3.2. period-детектор
 
 
     Далее, по текущему буфферу wave_pattern_detector_ctx становится возможно на более низкой скорости (к примеру - 240 Гц - в 4 раза чаще обновления дисплея) определять паттерн периода и его значение (также - значение частоты, а далее - значения амплитуд на периоде (не running, а просто по ограниченному куску основного буффера &used_scope->signal_control_data.scope_buffer_data))
@@ -1139,7 +1533,7 @@ Halfwave-детектор
 
     На каждом рассчётном шаге для 
 
-    ```cpp
+    ```c
 
         void scope_period_detection(Scope* used_scope)
         {
@@ -1149,8 +1543,8 @@ Halfwave-детектор
             // Понять по полуволнам из zero_cross_detector паттерн периода
 
             // Вычислить период
-
             // Вычислить частоту
+
 
             // Обновить значения measured_period и measured_frequency в памяти осциллографа
 
@@ -1158,132 +1552,642 @@ Halfwave-детектор
 
     ```
 
-    3.3.2.1 pattern-детектор
+### 3.2.1 Pattern Detector (halfwave-based)
+
+### 3.2.1.1 Общее представление
+
+После этапа zero-cross детекции сигнал преобразуется в последовательность полуволн:
+
+```c
+
+typedef struct halfwave_zero_cross_ctx
+{
+    // ===== topology =====
+    trend_type halfwave_type;        // RISING / FALLING
+
+    double start_time;
+    double end_time;
+
+    // ===== temporal =====
+    double halfwave_full_time;
+
+    // ===== shape features =====
+    float peak_value;
+    float trough_value;
+
+    float halfwave_area;
+    float halfwave_average_speed;
+
+} halfwave_zero_cross_ctx;
 
 
-    3.3.2.2 F / T - вычислитель
+typedef struct wave_pattern_detector_ctx
+{
+    halfwave_zero_cross_ctx halfwaves_for_detection[64];
+
+    int head;   // индекс последней записи
+    int count;  // текущее количество элементов (≤ 64)
+
+} wave_pattern_detector_ctx;
+
+```
+
+### Постановка задачи
+
+Период сигнала определяется как:
+
+максимальная длина последовательности полуволн, которая повторяется минимум два раза подряд с допустимой погрешностью признаков.
+
+### Проблема кольцевого буфера
+
+Буфер циклический:
+
+... ABCABABABCAB ...
+
+Начало периода может находиться в любой точке буфера.
+
+### Удвоение без копирования
+
+Для устранения проблемы цикличности используется виртуальное удвоение буфера:
+
+```c
+
+buf[(i + offset) % N]
+
+```
+
+Таким образом кольцевой буфер рассматривается как линейная последовательность длиной 2N.
+
+
+### Индексация
+
+```c
+
+static inline int idx(int i, int offset, int N)
+{
+    int v = i + offset;
+    if (v >= N) v -= N;
+    return v;
+}
+
+```
+
+### Метрика различия полуволн
+
+``` c
+
+float wave_distance(const halfwave_zero_cross_ctx* a,
+                    const halfwave_zero_cross_ctx* b)
+{
+    float d = 0.0f;
+
+    d += (a->halfwave_type != b->halfwave_type) ? 2.0f : 0.0f;
+
+    d += fabsf(a->halfwave_full_time - b->halfwave_full_time);
+    d += fabsf(a->peak_value - b->peak_value);
+    d += fabsf(a->trough_value - b->trough_value);
+    d += fabsf(a->halfwave_area - b->halfwave_area);
+    d += fabsf(a->halfwave_average_speed - b->halfwave_average_speed);
+
+    return d;
+}
+
+```
+
+### Сравнение двух блоков
+
+``` c
+
+float block_distance(halfwave_zero_cross_ctx* buf,
+                     int N,
+                     int offset,
+                     int L)
+{
+    float error = 0.0f;
+
+    for (int i = 0; i < L; i++)
+    {
+        const halfwave_zero_cross_ctx* a =
+            &buf[idx(i, offset, N)];
+
+        const halfwave_zero_cross_ctx* b =
+            &buf[idx(i + L, offset, N)];
+
+        error += wave_distance(a, b);
+    }
+
+    return error / (float)L;
+}
+
+```
+
+###  3.2.1.2 Результат детекции
+
+``` c
+typedef struct pattern_result
+{
+    int period_len;     // длина периода (в полуволнах)
+    int offset;         // фазовый сдвиг в буфере
+    float confidence;   // уверенность совпадения
+
+} pattern_result;
+
+```
+
+
+### 3.2.2 Алгоритм детекции периода
+
+
+``` c
+pattern_result detect_pattern(halfwave_zero_cross_ctx* buf, int N)
+{
+    pattern_result best;
+    best.period_len = 0;
+    best.offset = 0;
+    best.confidence = 0.0f;
+
+    for (int L = N / 2; L >= 2; L--)
+    {
+        float best_L_err = 1e9f;
+        int best_L_offset = -1;
+
+        for (int offset = 0; offset < L; offset++)
+        {
+            float err = block_distance(buf, N, offset, L);
+
+            if (err < best_L_err)
+            {
+                best_L_err = err;
+                best_L_offset = offset;
+            }
+        }
+
+        if (best_L_err < 0.25f)
+        {
+            best.period_len = L;
+            best.offset = best_L_offset;
+            best.confidence = 1.0f / (1.0f + best_L_err);
+            return best;
+        }
+    }
+
+    return best;
+}
+
+```
+
+или с функционалом чека периода
+
+``` c
+
+pattern_result detect_pattern(halfwave_zero_cross_ctx* buf, int N)
+{
+    pattern_result best;
+    best.period_len = 0;
+    best.offset = 0;
+    best.confidence = 0.0f;
+
+    int best_repeat_count = 0;
+
+    for (int L = N / 2; L >= 2; L--)
+    {
+        float best_L_err = 1e9f;
+        int best_L_offset = -1;
+
+        // 1. ищем лучший offset для данного L
+        for (int offset = 0; offset < L; offset++)
+        {
+            float err = block_distance(buf, N, offset, L);
+
+            if (err < best_L_err)
+            {
+                best_L_err = err;
+                best_L_offset = offset;
+            }
+        }
+
+        if (best_L_err < 0.25f)
+        {
+            int repeat_count = 0;
+
+            float repeat_err = validate_period_repeats(buf, N, L, best_L_offset, &repeat_count);
+
+            // ================================
+            // 1 повтор - просто период
+            // много повторов - усреднение
+            // ================================
+
+            if (repeat_count <= 1)
+            {
+                best.period_len = L;
+                best.offset = best_L_offset;
+                best.confidence = 1.0f / (1.0f + best_L_err);
+                return best;
+            }
+
+            // усреднение качества
+            float final_err = (best_L_err + repeat_err) * 0.5f;
+
+            best.period_len = L;
+            best.offset = best_L_offset;
+            best.confidence = 1.0f / (1.0f + final_err);
+
+            return best;
+        }
+    }
+
+    return best;
+}
+
+
+int validate_period_repeats(
+
+    halfwave_zero_cross_ctx* buf,
+    int N,
+    int L,
+    int offset
+    
+)
+{
+    int repeats = 1; // минимум один блок уже есть
+
+    // идём по цепочке: [0..L] vs [L..2L] vs [2L..3L] ...
+    while (1)
+    {
+        int base_start = offset + (repeats - 1) * L;
+        int next_start = base_start + L;
+
+        // если вышли за буфер — стоп
+        if (next_start + L > N)
+            break;
+
+        float err = block_distance(buf, N, base_start, L);
+
+        if (err < 0.25f) // твой threshold
+        {
+            repeats++;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    return repeats;
+}
+
+```
+
+или то же но более эффективно:
+
+    Сейчас: L → offset → block_distance → repeat scan → block_distance → block_distance...
+    Можно: Объединить поиск offset и проверку повторов в 1 проход
+
+
+``` c
+
+typedef struct pattern_candidate
+{
+
+    int L;
+    int offset;
+    float error;
+    float repeat_score;
+
+} pattern_candidate;
+
+
+pattern_result detect_pattern(halfwave_zero_cross_ctx* buf, int N)
+{
+    pattern_result best;
+    best.period_len = 0;
+    best.offset = 0;
+    best.confidence = 0.0f;
+
+    float best_score = -1.0f;
+
+    for (int L = N / 2; L >= 2; L--)
+    {
+        float best_L_err = 1e9f;
+        int best_L_offset = -1;
+
+        // 1. поиск лучшего offset
+        for (int offset = 0; offset < L; offset++)
+        {
+            float err = block_distance(buf, N, offset, L);
+
+            if (err < best_L_err)
+            {
+                best_L_err = err;
+                best_L_offset = offset;
+            }
+        }
+
+        // 2. отсев слабых кандидатов
+        if (best_L_err >= 0.25f)
+            continue;
+
+        int repeat_count = 0;
+        float repeat_err = validate_period_repeats(
+            buf, N, L, best_L_offset
+        );
+
+        // 3. нормализация устойчивости
+        float stability = (float)repeat_count;
+        float quality = 1.0f / (1.0f + best_L_err + repeat_err);
+
+        // 4. итоговый скоринг (ВАЖНО)
+        float score = stability * quality;
+
+        // 5. выбор лучшего кандидата
+        if (score > best_score)
+        {
+            best_score = score;
+
+            best.period_len = L;
+            best.offset = best_L_offset;
+            best.confidence = quality;
+        }
+    }
+
+    return best;
+}
+
+
+int validate_period_repeats_fast(
+
+    halfwave_zero_cross_ctx* buf,
+    int N,
+    int L,
+    int offset,
+    float* out_avg_error
+    
+)
+{
+    int repeats = 1;
+    float total_error = 0.0f;
+
+    while (1)
+    {
+        int a_start = offset + (repeats - 1) * L;
+        int b_start = a_start + L;
+
+        if (b_start + L > N)
+            break;
+
+        float err = 0.0f;
+
+        // INLINE block_distance (без повторных вызовов функций)
+        for (int i = 0; i < L; i++)
+        {
+            const halfwave_zero_cross_ctx* a =
+                &buf[(a_start + i >= N) ? (a_start + i - N) : (a_start + i)];
+
+            const halfwave_zero_cross_ctx* b =
+                &buf[(b_start + i >= N) ? (b_start + i - N) : (b_start + i)];
+
+            // inline wave_distance
+            float d = 0.0f;
+
+            d += (a->halfwave_type != b->halfwave_type) ? 2.0f : 0.0f;
+            d += fabsf(a->halfwave_full_time - b->halfwave_full_time);
+            d += fabsf(a->peak_value - b->peak_value);
+            d += fabsf(a->trough_value - b->trough_value);
+            d += fabsf(a->halfwave_area - b->halfwave_area);
+            d += fabsf(a->halfwave_average_speed - b->halfwave_average_speed);
+
+            err += d;
+        }
+
+        err /= (float)L;
+
+        total_error += err;
+
+        if (err < 0.25f)
+        {
+            repeats++;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    if (out_avg_error)
+        *out_avg_error = total_error / (float)repeats;
+
+    return repeats;
+}
+
+```
+
+### Ещё быстрее:
+
+Сейчас:
+
+    для каждого L:
+        для каждого offset:
+            пересчитать весь block_distance
+Можно:
+
+```
+1. хранишь 
+
+    текущий best_period
+    int current_L;
+    int current_offset;
+    float current_confidence;
+
+2. при добавлении новой полуволны:
+
+    update_model(new_halfwave)
+
+
+Как обновляется период
+
+    Когда приходит новая полуволна:
+
+    ты проверяешь только 2 вещи:
+
+        1. Подтверждает ли она текущий период?
+        buf[i] ≈ buf[i + current_L]
+
+        это O(L), а не O(N²)
+
+        2. Насколько она ломает модель?
+        если совпало → усиливаем confidence
+        если нет → ослабляем
+
+
+Где исчезает перебор L?
+
+Вот ключ:
+
+    было:
+        перебор всех L
+
+    стало:
+        L хранится как состояние
+
+
+Откуда вообще берётся новый L?
+
+    Он обновляется только когда:
+
+confidence падает
+появляется сильное расхождение
+
+Тогда ты делаешь “mini-search”:
+
+    try L in [current_L - 2 ... current_L + 2]
+
+это уже O(1) или O(log N), но не O(N²)
+
+```
+
+
+### Моя мысль 
+
+т.к. чек периода - редко вызывается и вызывается на мелкий буффер - забить на новое скользящее среднее и с чистой душой делать O(N^2)
+        
+    pattern detector не живёт в потоке данных
+    он не обязан быть O(1) или O(N) на каждый сэмпл
+    он просто успевает между апдейтами
+
+
+### 3.3 Итоговая интерпретация
+
+    period_len — длина периода сигнала в полуволнах
+    offset — фазовое смещение периода в кольцевом буфере
+    confidence — устойчивость совпадения признаков
+
+
+### Архитектурный смысл
+
+Pipeline преобразования:
+
+    zero-cross → halfwaves → feature vectors → cyclic sequence → pattern detection
+
+Система определяет период сигнала как максимально устойчивый повторяющийся блок полуволн в циклическом признаковом пространстве.
 
 
 
-
-
-    3.4. measured_extreme-детектор
+## 4. measured_extreme-детектор
 
     Далее, по найденному периоду возможно без особых затрат (для быстрых сигналов, для медленных - переиспользовать running значения) вычислить экстремумы и амплитуды, пользуясь участком буффера (head - 4T), примерно, как тут:
 
 
-    ```cpp
 
-    void scope_find_extreme(Scope* used_scope)
+
+``` c
+
+void scope_find_extreme(Scope* used_scope)
+{
+    scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
+    scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
+
+    if (buffer->count < 4) return;
+    if (ctrl->current_frequency_value <= 0.0f) return;
+
+    int head = buffer->head;
+
+    // =========================================================
+    // 1. определяем окно ~ 3 периода сигнала
+    // =========================================================
+
+    double freq = (double)ctrl->current_frequency_value;
+
+    int samples_per_period = (int)(SCOPE_SAMPLE_RATE / freq);
+    int window_size = samples_per_period * 3;
+
+    if (window_size < 10)
+        window_size = 10;
+
+    if (window_size > buffer->count)
+        window_size = buffer->count;
+
+    // =========================================================
+    // 2. границы кольцевого окна
+    // =========================================================
+
+    int start = (head - window_size + BUFFER_SIZE) % BUFFER_SIZE;
+    int end   = (head - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+
+    // =========================================================
+    // 3. поиск min/max
+    // =========================================================
+
+    float min_value = FLT_MAX;
+    float max_value = -FLT_MAX;
+
+    int i = start;
+
+    while (1)
     {
-        scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
-        scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
+        float v = buffer->samples[i].value;
 
-        if (buffer->count < 4) return;
-        if (ctrl->current_frequency_value <= 0.0f) return;
+        if (v < min_value) min_value = v;
+        if (v > max_value) max_value = v;
 
-        int head = buffer->head;
+        if (i == end)
+            break;
 
-        // =========================================================
-        // 1. определяем окно ~ 3 периода сигнала
-        // =========================================================
-
-        double freq = (double)ctrl->current_frequency_value;
-
-        int samples_per_period = (int)(SCOPE_SAMPLE_RATE / freq);
-        int window_size = samples_per_period * 3;
-
-        if (window_size < 10)
-            window_size = 10;
-
-        if (window_size > buffer->count)
-            window_size = buffer->count;
-
-        // =========================================================
-        // 2. границы кольцевого окна
-        // =========================================================
-
-        int start = (head - window_size + BUFFER_SIZE) % BUFFER_SIZE;
-        int end   = (head - 1 + BUFFER_SIZE) % BUFFER_SIZE;
-
-        // =========================================================
-        // 3. поиск min/max
-        // =========================================================
-
-        float min_value = FLT_MAX;
-        float max_value = -FLT_MAX;
-
-        int i = start;
-
-        while (1)
-        {
-            float v = buffer->samples[i].value;
-
-            if (v < min_value) min_value = v;
-            if (v > max_value) max_value = v;
-
-            if (i == end)
-                break;
-
-            i = (i + 1) % BUFFER_SIZE;
-        }
-
-        ctrl->current_min_signal_value = min_value;
-        ctrl->current_max_signal_value = max_value;
-
-        // =========================================================
-        // 4. амплитуда
-        // =========================================================
-
-        float raw_amplitude = (max_value - min_value) * 0.5f;
-
-        // первый запуск
-        if (!ctrl->amplitude_initialized)
-        {
-            ctrl->amplitude_estimate = raw_amplitude;
-            ctrl->amplitude_initialized = true;
-        }
-        else
-        {
-            // ОДНО сглаживание (важно: убрали двойное)
-            ctrl->amplitude_estimate =
-                0.85f * ctrl->amplitude_estimate +
-                0.15f * raw_amplitude;
-        }
-
-        if (ctrl->amplitude_estimate < 0.001f)
-            ctrl->amplitude_estimate = 0.001f;
-
-        // =========================================================
-        // 5. обновление threshold (не каждый вызов!)
-        // =========================================================
-
-        ctrl->threshold_update_accumulator++;
-
-        const int THRESHOLD_UPDATE_RATE = 10;
-
-        if (ctrl->threshold_update_accumulator >= THRESHOLD_UPDATE_RATE)
-        {
-            float zc_threshold = ctrl->amplitude_estimate * 0.02f;
-
-            if (zc_threshold < 0.001f)
-                zc_threshold = 0.001f;
-
-            ctrl->controlled_signal->current_treshold = zc_threshold;
-
-            ctrl->threshold_update_accumulator = 0;
-        }
+        i = (i + 1) % BUFFER_SIZE;
     }
 
-    ```
+    ctrl->current_min_signal_value = min_value;
+    ctrl->current_max_signal_value = max_value;
+
+    // =========================================================
+    // 4. амплитуда
+    // =========================================================
+
+    float raw_amplitude = (max_value - min_value) * 0.5f;
+
+    // первый запуск
+    if (!ctrl->amplitude_initialized)
+    {
+        ctrl->amplitude_estimate = raw_amplitude;
+        ctrl->amplitude_initialized = true;
+    }
+    else
+    {
+        // ОДНО сглаживание (важно: убрали двойное)
+        ctrl->amplitude_estimate =
+            0.85f * ctrl->amplitude_estimate +
+            0.15f * raw_amplitude;
+    }
+
+    if (ctrl->amplitude_estimate < 0.001f)
+        ctrl->amplitude_estimate = 0.001f;
+
+    // =========================================================
+    // 5. обновление threshold (не каждый вызов!)
+    // =========================================================
+
+    ctrl->threshold_update_accumulator++;
+
+    const int THRESHOLD_UPDATE_RATE = 10;
+
+    if (ctrl->threshold_update_accumulator >= THRESHOLD_UPDATE_RATE)
+    {
+        float zc_threshold = ctrl->amplitude_estimate * 0.02f;
+
+        if (zc_threshold < 0.001f)
+            zc_threshold = 0.001f;
+
+        ctrl->controlled_signal->current_treshold = zc_threshold;
+
+        ctrl->threshold_update_accumulator = 0;
+    }
+}
+
+```
 
 
 ### Обновление фильтра и доверия по найденным значениям
 
 4. После завершения measuring-части прохода цикла, необходимо внести корректировки в параметры обратной связи...
-
-
-
 
 
 
