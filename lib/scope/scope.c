@@ -1,4 +1,4 @@
-// scope.h
+// scope.c
 
 
 // =========================================================================================== IMPORT
@@ -28,7 +28,7 @@
 
 void zero_crossings_check(Scope* used_scope);                       // Вспомогательная функция внутри void scope_buffer_update(Scope* used_scope);
 void scope_signal_buffer_init(Scope* used_scope);                   // Инициализация буфера осциллографа ДИНАМИЧЕСКОЕ ВЫДЕЛЕНИЕ !!!
-void scope_zero_cross_buffer_init(Scope* used_scope);                      // Инициализация буфера переходов через 0
+void scope_zero_cross_buffer_init(Scope* used_scope);               // Инициализация буфера переходов через 0
 
 void scope_gui_init(Scope* used_scope, SDL_Renderer* renderer);     // Инициализация графики осциллографа
 void scope_gui_renew(Scope* used_scope);                            // Обновление графики осциллографа
