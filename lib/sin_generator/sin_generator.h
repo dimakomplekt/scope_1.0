@@ -23,8 +23,6 @@ typedef struct sin_generator
     float current_clean;
     float current_noise;
 
-    float current_treshold;
-
     int initialized;
 
 } sin_generator_ctx;
