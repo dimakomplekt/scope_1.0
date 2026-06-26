@@ -25,6 +25,7 @@
 #define SCOPE_BUFFER_STOCK                  4
 
 // VIEW LVL
+#define MAX_CONTROLLED_FREQ                 20000
 #define MAX_DISPLAY_WIDTH                   2000
 #define SCOPE_SCREEN_OVERSAMPLING           4
 
@@ -167,6 +168,7 @@ typedef struct running_mean_ctx {
 
 } running_mean_ctx;
 
+
 // Медиана
 typedef struct running_median_ctx {
 
@@ -182,7 +184,8 @@ typedef struct running_median_ctx {
 typedef struct scope_realtime_filtering_ctx {
 
     float running_betha;
-    float running_sigma;
+    
+    float running_sigma_squad;
 
     // Коэффициент трешхолда
     float k_treshold;
@@ -197,10 +200,10 @@ typedef struct scope_running_signal_data_ctx {
     running_mean_ctx running_mean;
     running_median_ctx running_median;
 
-    // Как 0.7 * median + 0.3 * mean;
-    // С изменением долей по результатам прохода measured
-    float mean_part_in_offset;
+    // Offset, как 0.7 * median + 0.3 * mean;
+    // С изменением долей по результатам сравнения measured с running
     float median_part_in_offset;
+    float mean_part_in_offset;
 
     float running_dc_offset;
 

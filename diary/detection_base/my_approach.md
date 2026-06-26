@@ -7,6 +7,25 @@
 <img src="2.bmp" alt="Сигналы 2">
 
 
+## Входной анализ за O(1)
+
+Для первичного анализа сигналов при большом сэмпл рейте системы невозможно использовать классические методы рассчёта характеристик. Вместо них для экономии времени используется комбинация методик, запускаемых в runtime-е при обновлении буффера.
+
+### Фундаментальные научно-инженерные концепции алгоритма O(1)
+
+| Название концепции | Краткое описание, физический и математический смысл | Что конкретно этот алгоритм считает в нашем коде | Автор(ы) концепции | Год |
+| :--- | :--- | :--- | :--- | :--- |
+| **EMA** *(Exponential Moving Average)* | Рекурсивный фильтр низких частот (ФНЧ) первого порядка. Вместо хранения массива данных он обновляет текущее состояние, взвешивая новый семпл и всю сумму прошлых вычислений. Вес старых данных убывает экспоненциально, что математически моделирует аналоговую RC-цепочку. | Рассчитывает **плавное скользящее среднее значение (`running_mean.mean`)**. Используется как базовая, классическая линия центра сигнала, очищенная от высокочастотных шумов. | **Джон фон Нейман**, **Роберт Браун** | **1941 / 1959** |
+| **Sign-LMS** *(Adaptive Algorithm)* | Упрощенная модификация алгоритма наименьших квадратов для адаптивных фильтров. Вместо умножения на точную величину ошибки, алгоритм берет только её знак ($+1$ или $-1$). Это превращает сложные математические вычисления в простейшие операции инкремента/декремента. | Определяет **направление шага рантайм-медианы**. Позволяет микроконтроллеру за 1 такт процессора (через `if (error > 0)`) решить, куда двигать оценку центра сигнала — вверх или вниз, обходясь без тяжелых операций деления. | **Бернард Уидроу**, **Тед Хофф** | **1960** |
+| **Stochastic Approximation Median** | Математический метод поиска параметров случайного процесса (стохастическая аппроксимация Роббинса-Монро), примененный к знаку ошибки. Теория доказывает, что если шаг слежения зависит только от знака отклонения, то система сойдется не к среднему арифметическому, а строго к квантилю 0.5 — то есть к медиане. | Вычисляет **робастную (устойчивую к аномалиям) медиану (`running_median.median`)**. Это позволяет находить истинный центр сигнала за честное время $O(1)$, полностью игнорируя шальные одиночные выбросы АЦП и помехи, которые сильно исказили бы обычное среднее. | **Герберт Роббинс**, **Саттон Монро** | **1951** |
+| **Leaky Integrator** *(Утекающий интегратор)* | Цифровой накопитель, в котором накопленное значение на каждом шаге умножается на коэффициент чуть меньше единицы (например, `0.99`). Физически это моделирует «вязкое трение воздуха» или утечку тока в конденсаторе, предотвращая бесконечное накопление энергии в системе. | Реализует **демпфирование скорости медианы (`drift *= 0.99f`)**. Это заставляет накопленную скорость затухать до нуля, когда медиана уже пришла к центру сигнала, предотвращая бесконечный разгон и убирая дрожание (риппл) на ровных участках осциллограммы. | **Аналоговая схемотехника / Теория цепей** *(RC-фильтр)* | **XIX век / 1920-е** |
+| **Type 2 Tracking Loop** *(Следящая система 2-го порядка)* | Контур автоматического регулирования с двумя последовательно связанными интеграторами. Первая ступень интегрирует ускорение в скорость (дрифт), а вторая — скорость в координату. Такая система обладает «виртуальной массой» и способна отслеживать процессы, меняющиеся с постоянной скоростью, без статической ошибки. | Обеспечивает **динамический разгон медианы на крутых фронтах (`drift += step`, `median += drift`)**. Благодаря этому медиана не застревает на месте, а мгновенно ускоряется вслед за летящим вверх или вниз фронтом входящего сигнала (например, меандра), ликвидируя отставание. | **Гарри Найквист**, **Хендрик Боде** | **1932 / 1940** |
+| **Sensor Fusion** *(Комплексирование данных)* | Системный подход из кибернетики, заключающийся в математическом слиянии информации от разных датчиков или алгоритмов. Позволяет объединить сильные стороны каждого метода и компенсировать их индивидуальные недостатки. | Объединяет среднее и медиану в **финальную среднюю линию (`running_dc_offset = 0.7 * median + 0.3 * mean`)**. Сплав берет 70% устойчивости медианы к помехам и 30% идеальной гладкости среднего арифметического, выдавая непоколебимый «ноль» сигнала. | **Теория оценивания / Военная кибернетика** | **1960-е** |
+| **Rule of Three Sigma** *(Правило трех сигм)* | Фундаментальный закон математической статистики. Гласит, что для любого случайного процесса с нормальным распределением вероятностей практически все значения (точнее, 99.73%) гарантированно уложатся в диапазон плюс-минус три стандартных отклонения (сигмы) от центра. | Вычисляет **ширину зоны неопределенности шума (`running_treshold = k_treshold * sigma`)**. Умножая отфильтрованную сигму на `3.0f`, алгоритм строит вокруг средней линии вольтовый «коридор безопасности», за пределами которого шум гарантированно отсутствует. | **Пафнутий Чебышёв** (неравенство), **Вальтер Шухарт** (инженерия) | **1867 / 1924** |
+| **Online Variance** *(Алгоритм Велфорда)* | Алгоритм численного расчета дисперсии (мощности шума) за один проход по мере поступления данных. В отличие от школьной формулы, он не требует сначала копить сумму всех элементов, а потом сумму их квадратов, что защищает вычисления типа float от фатального переполнения регистров. | Вычисляет **текущую дисперсию шума (`running_sigma_squad`) на каждом семпле**. Алгоритм берет квадрат мгновенного отклонения (`diff * diff`), пропускает его через EMA-фильтр и сохраняет чистое состояние мощности шума в реальном времени без накопления буферов. | **Б. П. Велфорд**, **Дональд Кнут** | **1962** |
+
+
+
 ## EMA - основной алгоритм пайплайна
 
 EMA — это среднее значение, которое обновляется по мере прихода новых данных, но “забывает” старые значения всё быстрее и быстрее со временем.
@@ -246,7 +265,7 @@ ___
     running_dc
     running_mean
     running_median_state
-    running_sigma
+    running_sigma_squad
     previous_x
     state_machine
 
@@ -463,43 +482,42 @@ ___
 Примерный цикл прохода 1 от buffer[head - 1]:
 
 ```c
-
 // вход: новый sample
 void scope_buffer_analysis_1(Scope* used_scope)
 {
-    scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
+     scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
 
     if (buffer->count < 2) return;
 
+
     // =========================================================
-    // 0. ДОСТАЁМ СИГНАЛ
+    // 0. RAW SIGNAL
     // =========================================================
 
+    // Сигнал уже записан, head сдвинут, соответственно
+
     int curr_idx = buffer->head - 1;
-    if (curr_idx < 0) curr_idx += BUFFER_SIZE;
+    if (curr_idx < 0) curr_idx += BUFFER_SIZE;      // Сдвиг при проходе кольца
 
     int prev_idx = buffer->head - 2;
     if (prev_idx < 0) prev_idx += BUFFER_SIZE;
 
+    // Сэмплы сигнала
     sample_t curr = buffer->samples[curr_idx];
     sample_t prev = buffer->samples[prev_idx];
 
-    float x = curr.value;
-    double t = curr.time;
-
+    float x_curr = curr.value;
+    double t_curr = curr.time;
     float x_prev = prev.value;
 
+
     // =========================================================
-    // 1. STATE
+    // 1. STATE (Связываем с вашими структурами контекста)
     // =========================================================
 
     scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
-
-    float* running_mean   = &ctrl->running_mean;
-    float* running_median = &ctrl->running_median;
-    float* running_dc     = &ctrl->running_dc;
-
-    float* sigma_squad = &ctrl->sigma_squad; // variance
+    scope_running_signal_data_ctx* running_data = &ctrl->running_signal_characteristics;
+    scope_realtime_filtering_ctx*  filter_data = &ctrl->filter_ctx;
 
 
     // =========================================================
@@ -507,48 +525,57 @@ void scope_buffer_analysis_1(Scope* used_scope)
     // =========================================================
 
     // 2.1 running_mean (EMA)
-    *running_mean += ctrl->alpha_mean * (x - *running_mean);
+    running_data->running_mean.mean += running_data->running_mean.alpha * (x_curr - running_data->running_mean.mean);
 
 
-    // =========================================================
-    // 2.2 RUNNING MEDIAN (robust center estimator)
-    // =========================================================
+    // 2.2 RUNNING MEDIAN (robust center estimator via Sign-LMS)
+    float error = x_curr - running_data->running_median.median;
 
-    float error = x - (*running_median);
-
-    // direction of correction
-    if (error > 0)
-        ctrl->median_drift += ctrl->alpha_median;
+    // Направление коррекции скорости (дрифта)
+    if (error > 0.0f)
+        running_data->running_median.drift += running_data->running_median.step;
     else
-        ctrl->median_drift -= ctrl->alpha_median;
+        running_data->running_median.drift -= running_data->running_median.step;
 
-    // optional damping (очень важно!)
-    ctrl->median_drift *= 0.99f;
+    // Демпфирование дрифта (защита от разгона в бесконечность)
+    running_data->running_median.drift *= 0.99f;
 
-    // update median estimate
-    (*running_median) += ctrl->median_drift;
+    // Обновление оценки медианы
+    running_data->running_median.median += running_data->running_median.drift;
 
 
     // 2.3 running_dc (fusion center)
-    *running_dc = 0.7f * (*running_median) + 0.3f * (*running_mean);
+
+    running_data->running_dc_offset = (
+
+        (running_data->median_part_in_offset * running_data->running_median.median) + 
+        (running_data->mean_part_in_offset * running_data->running_mean.mean)
+        
+    );
 
 
     // =========================================================
-    // 3. NOISE MODEL (sigma^2)
+    // 3. NOISE MODEL (Интеграция дисперсии шума)
     // =========================================================
 
-    float diff = x - (*running_dc);
+    float diff = x_curr - running_data->running_dc_offset;
     float diff_squad = diff * diff;
 
-    *sigma_squad += ctrl->beta_sigma * (diff_squad - *sigma_squad);
+    float sigma_squad = filter_data->running_sigma_squad;
 
-    float sigma = sqrtf(*sigma_squad);
+    sigma_squad += filter_data->running_betha * (diff_squad - sigma_squad);
+
+    if (sigma_squad < 0.0f) sigma_squad = 0.0f;
+
+    filter_data->running_sigma_squad = sigma_squad;
+
+    float sigma = sqrt(sigma_squad);
 
     // =========================================================
-    // 4. DYNAMIC THRESHOLD (zone)
+    // 4. DYNAMIC THRESHOLD (Расчет зоны неопределенности шума)
     // =========================================================
-
-    ctrl->k_threshold = ctrl->k_threshold * sigma;
+    // Используем константный множитель k_treshold (например, 3.0f)
+    filter_data->running_treshold = filter_data->k_treshold * sigma;
 }
 ```
 
@@ -930,60 +957,100 @@ if (ctrl->trend == FALLING &&
 ``` c
 void scope_buffer_analysis_2(Scope* used_scope)
 {
-    scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
+     scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
 
     if (buffer->count < 2) return;
+
 
     // =========================================================
     // 0. RAW SIGNAL
     // =========================================================
 
+    // Сигнал уже записан, head сдвинут, соответственно
+
     int curr_idx = buffer->head - 1;
-    if (curr_idx < 0) curr_idx += BUFFER_SIZE;
+    if (curr_idx < 0) curr_idx += BUFFER_SIZE;      // Сдвиг при проходе кольца
 
     int prev_idx = buffer->head - 2;
     if (prev_idx < 0) prev_idx += BUFFER_SIZE;
 
+    // Сэмплы сигнала
     sample_t curr = buffer->samples[curr_idx];
     sample_t prev = buffer->samples[prev_idx];
 
-    float x = curr.value;
-    double t = curr.time;
-
+    float x_curr = curr.value;
+    double t_curr = curr.time;
     float x_prev = prev.value;
 
-    // =========================================================
-    // 1. STATE
-    // =========================================================
-
-    scope_signal_control_ctx* ctrl =
-        &used_scope->signal_control_data;
 
     // =========================================================
-    // 2. MODEL (mean / median / dc / sigma)
+    // 1. STATE (Связываем с вашими структурами контекста)
     // =========================================================
 
-    ctrl->running_mean += ctrl->alpha_mean * (x - ctrl->running_mean);
+    scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
+    scope_running_signal_data_ctx* running_data = &ctrl->running_signal_characteristics;
+    scope_realtime_filtering_ctx*  filter_data = &ctrl->filter_ctx;
 
-    if (x > ctrl->running_median)
-        ctrl->running_median += ctrl->alpha_median;
+
+    // =========================================================
+    // 2. CENTER MODEL (running_mean / running_median / running_dc)
+    // =========================================================
+
+    // 2.1 running_mean (EMA)
+    running_data->running_mean.mean += running_data->running_mean.alpha * (x_curr - running_data->running_mean.mean);
+
+
+    // 2.2 RUNNING MEDIAN (robust center estimator via Sign-LMS)
+    float error = x_curr - running_data->running_median.median;
+
+    // Направление коррекции скорости (дрифта)
+    if (error > 0.0f)
+        running_data->running_median.drift += running_data->running_median.step;
     else
-        ctrl->running_median -= ctrl->alpha_median;
+        running_data->running_median.drift -= running_data->running_median.step;
 
-    ctrl->running_dc =
-        0.7f * ctrl->running_median +
-        0.3f * ctrl->running_mean;
+    // Демпфирование дрифта (защита от разгона в бесконечность)
+    running_data->running_median.drift *= 0.99f;
 
-    float diff = x - ctrl->running_dc;
-    float diff2 = diff * diff;
+    // Обновление оценки медианы
+    running_data->running_median.median += running_data->running_median.drift;
 
-    ctrl->sigma_squad += ctrl->beta_sigma * (diff2 - ctrl->sigma_squad);
 
-    float sigma = sqrtf(ctrl->sigma_squad);
-    float threshold = ctrl->k_threshold * sigma;
+    // 2.3 running_dc (fusion center)
+
+    running_data->running_dc_offset = (
+
+        (running_data->median_part_in_offset * running_data->running_median.median) + 
+        (running_data->mean_part_in_offset * running_data->running_mean.mean)
+        
+    );
+
 
     // =========================================================
-    // 3. TREND DETECTION
+    // 3. NOISE MODEL (Интеграция дисперсии шума)
+    // =========================================================
+
+    float diff = x_curr - running_data->running_dc_offset;
+    float diff_squad = diff * diff;
+
+    float sigma_squad = filter_data->running_sigma_squad;
+
+    sigma_squad += filter_data->running_betha * (diff_squad - sigma_squad);
+
+    if (sigma_squad < 0.0f) sigma_squad = 0.0f;
+
+    filter_data->running_sigma_squad = sigma_squad;
+
+    float sigma = sqrt(sigma_squad);
+
+    // =========================================================
+    // 4. DYNAMIC THRESHOLD (Расчет зоны неопределенности шума)
+    // =========================================================
+    // Используем константный множитель k_treshold (например, 3.0f)
+    filter_data->running_treshold = filter_data->k_treshold * sigma;
+
+    // =========================================================
+    // 5. TREND DETECTION
     // =========================================================
 
     if (x > x_prev)
@@ -992,7 +1059,7 @@ void scope_buffer_analysis_2(Scope* used_scope)
         ctrl->trend = -1;
 
     // =========================================================
-    // 4. PEAK / TROUGH CANDIDATES (noise-gated)
+    // 6. PEAK / TROUGH CANDIDATES (noise-gated)
     // =========================================================
 
     float deviation = fabsf(x - ctrl->running_dc);
@@ -1018,7 +1085,7 @@ void scope_buffer_analysis_2(Scope* used_scope)
     }
 
     // =========================================================
-    // 5. TREND CONFIDENCE (smoothed belief)
+    // 7. TREND CONFIDENCE (smoothed belief)
     // =========================================================
 
     float sigma_norm = sigma / (fabsf(ctrl->running_dc) + 1e-6f);
@@ -1038,7 +1105,7 @@ void scope_buffer_analysis_2(Scope* used_scope)
 
 
     // =========================================================
-    // 6. NORMALIZED STRENGTH
+    // 8. NORMALIZED STRENGTH
     // =========================================================
     
     // 1e-6f - быстрая защита от деления на 0
@@ -1055,7 +1122,7 @@ void scope_buffer_analysis_2(Scope* used_scope)
 
 
     // =========================================================
-    // 7. EVENT DETECTION (peak/trough commit)
+    // 9. EVENT DETECTION (peak/trough commit)
     // =========================================================
 
     if (ctrl->trend != ctrl->prev_trend &&

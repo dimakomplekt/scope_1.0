@@ -29,6 +29,9 @@
 
 // Init
 
+void scope_main_settings_init(Scope* used_scope);
+
+
 void scope_signal_buffer_init(Scope* used_scope);
 
 
@@ -52,6 +55,9 @@ void scope_screen_gui_init(Scope* used_scope);
 
 
 // Clear
+
+void scope_main_settings_clear(Scope* used_scope);
+
 
 void scope_signal_buffer_clear(Scope* used_scope);
 
@@ -222,6 +228,37 @@ void on_off_command(Button* btn);
 
 // =========================================================================================== INIT and CLEAR helpers
 
+void scope_main_settings_init(Scope* used_scope)
+{
+    // ===== Инициализация основных настроек ===== 
+
+    used_scope->main_settings.current_state = OFF_SS;
+    used_scope->main_settings.current_mode = SCOPE_MODE_FIXED_TIME_STEP_SRM;            // Базово - фикс
+    
+    used_scope->main_settings.acessable_modes[0] = SCOPE_MODE_FIXED_TIME_STEP_SRM;
+    used_scope->main_settings.acessable_modes[1] = SCOPE_MODE_SCROLL_TO_RIGHT_SRM;
+    used_scope->main_settings.acessable_modes[2] = LIMIT_SRM;
+
+    used_scope->main_settings.periods_to_display = 2;                                   // Базово - 2 периода для отображения (в режиме с фикс. кол-вом)
+    used_scope->main_settings.time_val_in_one_unit = 1;                                 // Базово - 1 (режим с фикс. разв)
+    used_scope->main_settings.signal_val_in_one_unit = 1;                               // Базово - 1 (режим с фикс. разв)
+    
+    used_scope->main_settings.current_signal_units  = VOLTS_SU;                         // Базово - вольты 
+    used_scope->main_settings.current_time_units = MILLISECONDS_TU;                     // Базово - микросекунды (но переменная всегда в секундах)
+    used_scope->main_settings.current_frequency_units = HERTZ_FU;                       // Базово - Герцы (но переменная всегда в Герцах)
+    
+    // ===== Инициализация основных настроек ===== 
+
+
+    // ===== Сигнал ===== 
+
+    // No signal at the start
+    used_scope->signal_control_data.controlled_signal = NULL;
+
+    // ===== Сигнал ===== 
+}
+
+
 void scope_signal_buffer_init(Scope* used_scope)
 {
     scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
@@ -235,19 +272,112 @@ void scope_signal_buffer_init(Scope* used_scope)
 
 void scope_running_signal_characteristics_init(Scope* used_scope)
 {
+    scope_running_signal_data_ctx* running_data = &used_scope->signal_control_data.running_signal_characteristics;
 
+    // =========================================================
+    // 1. MEAN (EMA Фильтр)
+    // =========================================================
+    running_data->running_mean.mean = 0.0f;
+
+    // Задаем физическое время сглаживания (подавление частот выше ~500 Гц)
+    float target_smoothing_time = 0.002f; // 2 миллисекунды
+
+    // Находим эквивалентное окно в количестве семплов: N = time * f_s
+    float samples_in_window = target_smoothing_time * (float)SCOPE_SAMPLE_RATE; 
+
+    // Защита от деления на ноль, если частота дискретизации выставлена неверно
+    if (samples_in_window < 1.0f) samples_in_window = 1.0f;
+
+    // Финальный расчет коэффициента затухания по формуле: alpha = 2 / (N + 1)
+    running_data->running_mean.alpha = 2.0f / (samples_in_window + 1.0f);
+
+
+    // =========================================================
+    // 2. MEDIAN (Sign-LMS со вторым порядком интеграции)
+    // =========================================================
+    running_data->running_median.median = 0.0f;
+
+    // Рассчитываем максимальную скорость (первую производную) нормализованного сигнала
+    // v_max = Amp * 2 * PI * f_max
+    float v_max = 1.0f * 2.0f * (float)M_PI * (float)MAX_CONTROLLED_FREQ;
+
+    // Находим максимальное приращение сигнала за ОДИН семпл
+    float max_delta_per_sample = v_max / (float)SCOPE_SAMPLE_RATE;
+
+    // ТАК КАК медиана использует систему с дрифтом (второй порядок):
+    // drift += step * sign(error) -> drift *= 0.99 -> median += drift
+    // Переменная 'step' работает как ускорение (дёргает скорость).
+    // Экспериментальный коэффициент затухания дрифта 0.99 демпфирует разгон.
+    // Чтобы медиана плавно трекала сигнал без дикого шума слежения (риппла),
+    // шаг приращения скорости должен составлять около 0.1% - 0.5% от максимального дельты.
+    running_data->running_median.step  = max_delta_per_sample * 0.001f; 
+    
+    // Начальное значение дрифта (скорости изменения) ставим в ноль,
+    // чтобы алгоритм стартовал из стабильного состояния и набрал скорость сам.
+    running_data->running_median.drift = 0.0f;
+
+
+    // =========================================================
+    // 3. FUSION & OFFSET MANAGEMENT
+    // =========================================================
+    running_data->median_part_in_offset = 0.7f;
+    running_data->mean_part_in_offset   = 0.3f;
+    running_data->running_dc_offset     = 0.0f;
 }
 
 
 void scope_measured_signal_characteristics_init(Scope* used_scope)
 {
+    scope_measured_signal_data_ctx* measured_data = &used_scope->signal_control_data.measured_signal_characteristics;
 
+
+    measured_data->current_confidence_to_running = 1.0f;     
+
+    measured_data->measured_period = 0.0f;
+    measured_data->measured_frequency = 0.0f;
+
+    measured_data->measured_mean = 0.0f;
+    measured_data->measured_median = 0.0f;
+
+    measured_data->measured_max = -FLT_MAX;
+    measured_data->measured_min = FLT_MAX;
+
+    measured_data->measured_dc_offset = 0.0f;
 }
 
 
 void scope_filter_init(Scope* used_scope)
 {
+    scope_realtime_filtering_ctx* filter = &used_scope->signal_control_data.filter_ctx;
 
+    // Оценка шума (variance/дисперсия) должна меняться медленнее, чем само среднее значение,
+    // чтобы избежать ложных срабатываний динамического порога на случайных пиках.
+    // Мы закладываем время интеграции шума 0.005 с. При частоте дискретизации 48000
+
+    // Количество сэмплов окна дисперсии N = 0.005 * 48000
+    // Betha = 2 / (N + 1)
+
+    float noise_integration_time = 0.005f;
+    float samples_in_noise_window = noise_integration_time * (float)SCOPE_SAMPLE_RATE;
+
+    // Защита от некорректной частоты дискретизации
+    if (samples_in_noise_window < 1.0f) samples_in_noise_window = 1.0f;
+
+    // Находим betha по формуле экспоненциального скользящего среднего: 2 / (N + 1)
+    filter->running_betha = 2.0f / (samples_in_noise_window + 1.0f);
+
+    // НАЧАЛЬНОЕ СОСТОЯНИЕ ШУМА:
+    // Безопаснее стартовать с небольшого шума, отличного от нуля,
+    // чтобы running_treshold сразу имел адекватную зону мертвой полосы.
+    // Если running_sigma_squad — это СКО, оставляем 0.01f. 
+    // Если в структуре лежит квадрат (дисперсия), то пишем (0.01f * 0.01f).
+    filter->running_sigma_squad = 0.0001f; 
+
+    // Множитель правила трех сигм (отсекает 99.7% случайных пиков шума)
+    filter->k_treshold = 3.0f;
+    
+    // Рассчитываем стартовый порог сразу при инициализации
+    filter->running_treshold = filter->k_treshold * filter->running_sigma_squad;
 }
 
 
@@ -351,6 +481,36 @@ void scope_screen_gui_init(Scope* used_scope)
 
 // Clear
 
+void scope_main_settings_clear(Scope* used_scope)
+{
+    // ===== Инициализация основных настроек ===== 
+
+    used_scope->main_settings.current_mode = SCOPE_MODE_FIXED_TIME_STEP_SRM;            // Базово - фикс
+    
+    used_scope->main_settings.acessable_modes[0] = SCOPE_MODE_FIXED_TIME_STEP_SRM;
+    used_scope->main_settings.acessable_modes[1] = SCOPE_MODE_SCROLL_TO_RIGHT_SRM;
+    used_scope->main_settings.acessable_modes[2] = LIMIT_SRM;
+
+    used_scope->main_settings.periods_to_display = 2;                                   // Базово - 2 периода для отображения (в режиме с фикс. кол-вом)
+    used_scope->main_settings.time_val_in_one_unit = 1;                                 // Базово - 1 (режим с фикс. разв)
+    used_scope->main_settings.signal_val_in_one_unit = 1;                               // Базово - 1 (режим с фикс. разв)
+    
+    used_scope->main_settings.current_signal_units  = VOLTS_SU;                         // Базово - вольты 
+    used_scope->main_settings.current_time_units = MILLISECONDS_TU;                     // Базово - микросекунды (но переменная всегда в секундах)
+    used_scope->main_settings.current_frequency_units = HERTZ_FU;                       // Базово - Герцы (но переменная всегда в Герцах)
+    
+    // ===== Инициализация основных настроек ===== 
+
+
+    // ===== Сигнал ===== 
+
+    // No signal at the start
+    used_scope->signal_control_data.controlled_signal = NULL;
+
+    // ===== Сигнал ===== 
+}
+
+
 void scope_signal_buffer_clear(Scope* used_scope)
 {
     if (!used_scope) return;
@@ -369,19 +529,22 @@ void scope_signal_buffer_clear(Scope* used_scope)
 
 void scope_running_signal_characteristics_clear(Scope* used_scope)
 {
-
+    // Repeat init
+    scope_running_signal_characteristics_init(used_scope);
 }
 
 
 void scope_measured_signal_characteristics_clear(Scope* used_scope)
 {
-
+    // Repeat init
+    scope_measured_signal_characteristics_init(used_scope);
 }
 
 
 void scope_filter_clear(Scope* used_scope)
 {
-
+    // Repeat init
+    scope_filter_init(used_scope);
 }
 
 
@@ -499,7 +662,100 @@ void scope_buffer_update(Scope* used_scope)
 
 void runtime_data_update(Scope* used_scope)
 {
+    scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
 
+    if (buffer->count < 2) return;
+
+
+    // =========================================================
+    // 0. RAW SIGNAL
+    // =========================================================
+
+    // Сигнал уже записан, head сдвинут, соответственно
+
+    int curr_idx = buffer->head - 1;
+    if (curr_idx < 0) curr_idx += BUFFER_SIZE;      // Сдвиг при проходе кольца
+
+    int prev_idx = buffer->head - 2;
+    if (prev_idx < 0) prev_idx += BUFFER_SIZE;
+
+    // Сэмплы сигнала
+    sample_t curr = buffer->samples[curr_idx];
+    sample_t prev = buffer->samples[prev_idx];
+
+    float x_curr = curr.value;
+    double t_curr = curr.time;
+    float x_prev = prev.value;
+
+
+    // =========================================================
+    // 1. STATE (Связываем с вашими структурами контекста)
+    // =========================================================
+
+    scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
+    scope_running_signal_data_ctx* running_data = &ctrl->running_signal_characteristics;
+    scope_realtime_filtering_ctx*  filter_data = &ctrl->filter_ctx;
+
+
+    // =========================================================
+    // 2. CENTER MODEL (running_mean / running_median / running_dc)
+    // =========================================================
+
+    // 2.1 running_mean (EMA)
+    running_data->running_mean.mean += running_data->running_mean.alpha * (x_curr - running_data->running_mean.mean);
+
+
+    // 2.2 RUNNING MEDIAN (robust center estimator via Sign-LMS)
+    float error = x_curr - running_data->running_median.median;
+
+    // Направление коррекции скорости (дрифта)
+    if (error > 0.0f)
+        running_data->running_median.drift += running_data->running_median.step;
+    else
+        running_data->running_median.drift -= running_data->running_median.step;
+
+    // Демпфирование дрифта (защита от разгона в бесконечность)
+    running_data->running_median.drift *= 0.99f;
+
+    // Обновление оценки медианы
+    running_data->running_median.median += running_data->running_median.drift;
+
+
+    // 2.3 running_dc (fusion center)
+
+    running_data->running_dc_offset = (
+
+        (running_data->median_part_in_offset * running_data->running_median.median) + 
+        (running_data->mean_part_in_offset * running_data->running_mean.mean)
+        
+    );
+
+
+    // =========================================================
+    // 3. NOISE MODEL (Интеграция дисперсии шума)
+    // =========================================================
+
+    float diff = x_curr - running_data->running_dc_offset;
+    float diff_squad = diff * diff;
+
+    float sigma_squad = filter_data->running_sigma_squad;
+
+    // Пересчёт через текущую бетту и dc-offset
+    sigma_squad += filter_data->running_betha * (diff_squad - sigma_squad);
+
+    if (sigma_squad < 0.0f) sigma_squad = 0.0f;
+
+    filter_data->running_sigma_squad = sigma_squad;
+
+    float sigma = sqrt(sigma_squad);
+
+
+    // =========================================================
+    // 4. DYNAMIC THRESHOLD (Расчет зоны неопределенности шума)
+    // =========================================================
+    // Используем константный множитель k_treshold (например, 3.0f)
+    filter_data->running_treshold = filter_data->k_treshold * sigma;
+    
 }
 
 
@@ -2110,24 +2366,11 @@ void on_off_command(Button* btn)
 
 void scope_init(Scope* used_scope, SDL_Renderer* renderer)
 {
-    // ===== Инициализация основных настроек ===== 
+    // ===== Инициализация настроек осциллографа ===== 
+        
+    scope_main_settings_init(used_scope);
 
-    used_scope->main_settings.current_state = OFF_SS;
-    used_scope->main_settings.current_mode = SCOPE_MODE_FIXED_TIME_STEP_SRM;            // Базово - скролл (синус инициируется низкочастотным)
-    
-    used_scope->main_settings.acessable_modes[0] = SCOPE_MODE_FIXED_TIME_STEP_SRM;
-    used_scope->main_settings.acessable_modes[1] = SCOPE_MODE_SCROLL_TO_RIGHT_SRM;
-    used_scope->main_settings.acessable_modes[2] = LIMIT_SRM;
-
-    used_scope->main_settings.periods_to_display = 2;                                   // Базово - 2 периода для отображения (в режиме с фикс. кол-вом)
-    used_scope->main_settings.time_val_in_one_unit = 1;                                 // Базово - 1 (режим с фикс. разв)
-    used_scope->main_settings.signal_val_in_one_unit = 1;                               // Базово - 1 (режим с фикс. разв)
-    
-    used_scope->main_settings.current_signal_units  = VOLTS_SU;                         // Базово - вольты 
-    used_scope->main_settings.current_time_units = MILLISECONDS_TU;                     // Базово - микросекунды (но переменная всегда в секундах)
-    used_scope->main_settings.current_frequency_units = HERTZ_FU;                       // Базово - Герцы (но переменная всегда в Герцах)
-    
-    // ===== Инициализация основных настроек ===== 
+    // ===== Инициализация настроек осциллографа ===== 
 
 
     // ===== Инициализация буфферов, фильтра, характеристик и детектора полуволн ===== 
@@ -2144,9 +2387,6 @@ void scope_init(Scope* used_scope, SDL_Renderer* renderer)
     scope_halfwaves_for_check_init(used_scope);
 
     // ===== Инициализация буфферов, фильтра, характеристик и детектора полуволн ===== 
-
-    // No signal at the start
-    used_scope->signal_control_data.controlled_signal = NULL;
 
 
     // ===== Инициализация GUI ===== 
