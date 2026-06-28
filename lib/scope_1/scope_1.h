@@ -283,20 +283,10 @@ typedef struct scope_realtime_peaks_ctx {
     float max_confidence;               // Уверенность в кандидате
     float min_confidence;               // Уверенность в кандидате
 
-    float running_min;                  // Текущее минимальное значение
     float running_max;                  // Текущее максимальное значение
+    float running_min;                  // Текущее минимальное значение
 
     float running_amplitude;            // Текущая амплитуда
-
-
-    // Инкрементальный счётчик количества измерений сигнала в текущей полуволне
-    int halfwave_parts_counter;
-
-    // Средняя скорость текущей полуволны
-    float average_halfwave_velocity;
-
-    // Площадь текущей полуволны
-    float halfwave_area;
 
 } scope_realtime_peaks_ctx;
 
@@ -400,6 +390,22 @@ typedef struct wave_pattern_detector_former_ctx
 
         // На этом же шаге по текущему head кольцевого zero_cross_detector буффера производится запись проанализированной полуволны в halfwaves_for_detection
         // текущего zero_crosses_detector:
+
+
+    // Сигналы с низким доверием не участвуют в расчётах 
+    // Инкрементальный счётчик количества измерений сигнала в текущей полуволне
+    // Используется для поиска средней скорости
+    int halfwave_parts_counter;
+
+    float prev_clean_signal_value;          // Значение предыдущего сигнала с допустимым доверием
+    float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
+
+    // Средняя скорость текущей полуволны
+    float average_halfwave_velocity;
+
+
+    // Площадь текущей полуволны
+    float halfwave_area;
 
 
 } wave_pattern_detector_former_ctx;
@@ -1248,9 +1254,9 @@ typedef struct scope_signal_control_ctx
 
     scope_realtime_peaks_ctx peaks_ctx;                                // Data peak-анализатора
 
-    wave_pattern_detector_former_ctx wave_pattern_detector;            // Data детектора полуволн
+    wave_pattern_detector_former_ctx wave_pattern_detector_former;     // Data детектора полуволн
 
-    wave_pattern_detector_ctx halfwaves_for_check;                     // Буффер полуволн для проверки детектором паттернов / периода
+    wave_pattern_detector_ctx wave_pattern_detector;                   // Буффер полуволн для проверки детектором паттернов / периода
 
     // ===== SIGNAL ANALYSATORS DATA =====
 

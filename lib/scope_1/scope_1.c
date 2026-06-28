@@ -44,9 +44,9 @@ void scope_filter_init(Scope* used_scope);
 
 void scope_peaks_ctx_init(Scope* used_scope);
 
-void scope_wave_pattern_detector_init(Scope* used_scope);
+void scope_wave_pattern_detector_former_init(Scope* used_scope);
 
-void scope_halfwaves_for_check_init(Scope* used_scope);
+void scope_wave_pattern_detector_init(Scope* used_scope);
 
 
 void scope_gui_init(Scope* used_scope, SDL_Renderer* renderer);
@@ -71,9 +71,9 @@ void scope_filter_clear(Scope* used_scope);
 
 void scope_peaks_ctx_clear(Scope* used_scope);
 
-void scope_wave_pattern_detector_clear(Scope* used_scope);
+void scope_wave_pattern_detector_former_clear(Scope* used_scope);
 
-void scope_halfwaves_for_check_clear(Scope* used_scope);
+void scope_wave_pattern_detector_clear(Scope* used_scope);
 
 
 void scope_screen_gui_clear(Scope* used_scope);
@@ -383,19 +383,99 @@ void scope_filter_init(Scope* used_scope)
 
 void scope_peaks_ctx_init(Scope* used_scope)
 {
+    scope_realtime_peaks_ctx* peaks_ctx = &used_scope->signal_control_data.peaks_ctx;
 
+    peaks_ctx->prev_trend = FALLING_PT;         // Предыдущий тренд сигнала - предполагается falling, сменится сразу после
+
+    peaks_ctx->trend_confidence = 1.0f;            // Максимальное доверие к первому тренду
+    peaks_ctx->last_event_confidence = 1.0f;       // Максимальное доверие к прошлому ивенту
+
+    peaks_ctx->peak_candidate = -FLT_MAX;       // Кандидат на пик
+    peaks_ctx->trough_candidate = FLT_MAX;      // Кандидат на яму
+
+    peaks_ctx->last_peak = -FLT_MAX;            // Прошлый пик
+    peaks_ctx->last_trough = FLT_MAX;           // Прошлая яма
+
+    peaks_ctx->max_candidate = -FLT_MAX;        // Кандидат на максимум
+    peaks_ctx->min_candidate = FLT_MAX;         // Кандидат на минимум
+
+    peaks_ctx->max_confidence = 1.0f;              // Уверенность в кандидате
+    peaks_ctx->min_confidence = 1.0f;              // Уверенность в кандидате
+
+
+    peaks_ctx->running_max = -FLT_MAX;          // Текущее максимальное значение
+    peaks_ctx->running_min = FLT_MAX;           // Текущее минимальное значение
+
+    peaks_ctx->running_amplitude = FLT_MAX;     // Текущая амплитуда
+
+}
+
+
+void scope_wave_pattern_detector_former_init(Scope* used_scope)
+{
+    wave_pattern_detector_former_ctx* wpdf_ctx = &used_scope->signal_control_data.wave_pattern_detector_former;
+
+    // Ожидание восходящего zero-cross с любой позиции приёма первых данных
+    wpdf_ctx->buffer_former_state = LIMIT_FS;
+
+    // Инициализация пустой полуволны (часть данных уйдёт под замену при первом же восходящем zero cross, часть при первом достижении LIMIT_PT)
+    wpdf_ctx->curr_halfwave.halfwave_type = LIMIT_PT;
+    wpdf_ctx->curr_halfwave.start_time = 0.0f;
+    wpdf_ctx->curr_halfwave.end_time = 0.0f;
+
+    wpdf_ctx->curr_halfwave.halfwave_full_time = 0.0f;
+
+    wpdf_ctx->curr_halfwave.peak_value = -FLT_MAX;
+    wpdf_ctx->curr_halfwave.trough_value = FLT_MAX;
+    wpdf_ctx->curr_halfwave.halfwave_area = 0.0f;
+    wpdf_ctx->curr_halfwave.halfwave_average_speed = 0.0f;
+
+
+    wpdf_ctx->point_1_time = 0.0f;
+    wpdf_ctx->point_2_time = 0.0f;
+
+    wpdf_ctx->halfwave_zero_crosses[0].zero_cross_type = LIMIT_PT;
+    wpdf_ctx->halfwave_zero_crosses[0].time = 0.0f;
+
+    wpdf_ctx->halfwave_zero_crosses[1].zero_cross_type = LIMIT_PT;
+    wpdf_ctx->halfwave_zero_crosses[1].time = 0.0f;
+
+
+    // Инкрементальный счётчик количества измерений сигнала в текущей полуволне
+    wpdf_ctx->halfwave_parts_counter = 0;
+
+    wpdf_ctx->prev_clean_signal_value = 0.0f;
+    wpdf_ctx->prev_clean_signal_time = 0.0f;
+
+    // Средняя скорость текущей полуволны
+    wpdf_ctx->average_halfwave_velocity = 0.0f;
+
+    // Площадь текущей полуволны
+    wpdf_ctx->halfwave_area = 0.0f;  
 }
 
 
 void scope_wave_pattern_detector_init(Scope* used_scope)
 {
+    wave_pattern_detector_ctx* wpd_ctx = &used_scope->signal_control_data.wave_pattern_detector;
 
-}
+    wpd_ctx->head = 0;
+    wpd_ctx->count = 0;
 
 
-void scope_halfwaves_for_check_init(Scope* used_scope)
-{
-
+    for (int i = 0; i == 64; i++)
+    {
+        wpd_ctx->halfwaves_for_detection[i].halfwave_type = LIMIT_PT;
+        wpd_ctx->halfwaves_for_detection[i].start_time = 0.0f;
+        wpd_ctx->halfwaves_for_detection[i].end_time = 0.0f;
+    
+        wpd_ctx->halfwaves_for_detection[i].halfwave_full_time = 0.0f;
+    
+        wpd_ctx->halfwaves_for_detection[i].peak_value = -FLT_MAX;
+        wpd_ctx->halfwaves_for_detection[i].trough_value = FLT_MAX;
+        wpd_ctx->halfwaves_for_detection[i].halfwave_area = 0.0f;
+        wpd_ctx->halfwaves_for_detection[i].halfwave_average_speed = 0.0f;
+    }
 }
 
 
@@ -513,16 +593,8 @@ void scope_main_settings_clear(Scope* used_scope)
 
 void scope_signal_buffer_clear(Scope* used_scope)
 {
-    if (!used_scope) return;
-
-    scope_buffer_ctx* buffer =
-        &used_scope->signal_control_data.scope_buffer_data;
-
-    buffer->head = 0;
-    buffer->count = 0;
-
-    memset(buffer->samples, 0, sizeof(buffer->samples));
-
+    // Repeat init
+    scope_signal_buffer_init(used_scope);
 }
 
 
@@ -550,25 +622,29 @@ void scope_filter_clear(Scope* used_scope)
 
 void scope_peaks_ctx_clear(Scope* used_scope)
 {
+    // Repeat init
+    scope_peaks_ctx_init(used_scope);
+}
 
+
+void scope_wave_pattern_detector_former_clear(Scope* used_scope)
+{
+    // Repeat init
+    scope_wave_pattern_detector_former_init(used_scope);
 }
 
 
 void scope_wave_pattern_detector_clear(Scope* used_scope)
-{
-
-}
-
-
-void scope_halfwaves_for_check_clear(Scope* used_scope)
-{
-
+{   
+    // Repeat init
+    scope_wave_pattern_detector_init(used_scope);
 }
 
 
 void scope_screen_gui_clear(Scope* used_scope)
 {
-
+    // Repeat init
+    scope_gui_init(used_scope);
 }
 
 
@@ -761,13 +837,16 @@ void runtime_data_update(Scope* used_scope)
 
 void runtime_detect_peaks(Scope* used_scope)
 {
-
+    // Чекаем пики, выставляем всю дату в контроллере пиков
 }
 
 
 void runtime_detect_halfwaves(Scope* used_scope)
 {
+    // Проверяем на zero-cross c учетом доверия к данным от peak-детектора
+    // по текущему runtime_dc_offset
 
+    // При обнаружении переходов действуем, согласно логике стейт-машины обнаружения переходов
 }
 
 
@@ -2383,8 +2462,8 @@ void scope_init(Scope* used_scope, SDL_Renderer* renderer)
     scope_filter_init(used_scope);
 
     scope_peaks_ctx_init(used_scope);
+    scope_wave_pattern_detector_former_init(used_scope);
     scope_wave_pattern_detector_init(used_scope);
-    scope_halfwaves_for_check_init(used_scope);
 
     // ===== Инициализация буфферов, фильтра, характеристик и детектора полуволн ===== 
 
@@ -3047,8 +3126,8 @@ void scope_destroy(Scope* used_scope)
     scope_filter_clear(used_scope);
 
     scope_peaks_ctx_clear(used_scope);
+    scope_wave_pattern_detector_former_clear(used_scope);
     scope_wave_pattern_detector_clear(used_scope);
-    scope_halfwaves_for_check_clear(used_scope);
 
     scope_screen_gui_clear(used_scope);
 
