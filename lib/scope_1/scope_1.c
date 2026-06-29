@@ -418,8 +418,8 @@ void scope_wave_pattern_detector_former_init(Scope* used_scope)
     // Ожидание восходящего zero-cross с любой позиции приёма первых данных
     wpdf_ctx->buffer_former_state = LIMIT_FS;
 
-    // Инициализация пустой полуволны (часть данных уйдёт под замену при первом же восходящем zero cross, часть при первом достижении LIMIT_PT)
-    wpdf_ctx->curr_halfwave.halfwave_type = LIMIT_PT;
+    // Инициализация пустой полуволны (часть данных уйдёт под замену при первом же восходящем zero cross, часть при первом достижении STATIC_PT)
+    wpdf_ctx->curr_halfwave.halfwave_type = STATIC_PT;
     wpdf_ctx->curr_halfwave.start_time = 0.0f;
     wpdf_ctx->curr_halfwave.end_time = 0.0f;
 
@@ -434,10 +434,10 @@ void scope_wave_pattern_detector_former_init(Scope* used_scope)
     wpdf_ctx->point_1_time = 0.0f;
     wpdf_ctx->point_2_time = 0.0f;
 
-    wpdf_ctx->halfwave_zero_crosses[0].zero_cross_type = LIMIT_PT;
+    wpdf_ctx->halfwave_zero_crosses[0].zero_cross_type = STATIC_PT;
     wpdf_ctx->halfwave_zero_crosses[0].time = 0.0f;
 
-    wpdf_ctx->halfwave_zero_crosses[1].zero_cross_type = LIMIT_PT;
+    wpdf_ctx->halfwave_zero_crosses[1].zero_cross_type = STATIC_PT;
     wpdf_ctx->halfwave_zero_crosses[1].time = 0.0f;
 
 
@@ -465,7 +465,7 @@ void scope_wave_pattern_detector_init(Scope* used_scope)
 
     for (int i = 0; i == 64; i++)
     {
-        wpd_ctx->halfwaves_for_detection[i].halfwave_type = LIMIT_PT;
+        wpd_ctx->halfwaves_for_detection[i].halfwave_type = STATIC_PT;
         wpd_ctx->halfwaves_for_detection[i].start_time = 0.0f;
         wpd_ctx->halfwaves_for_detection[i].end_time = 0.0f;
     
@@ -837,7 +837,182 @@ void runtime_data_update(Scope* used_scope)
 
 void runtime_detect_peaks(Scope* used_scope)
 {
+    // Только что обновленный буффер
+    scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
+
+    if (buffer->count < 2) return;
+
     // Чекаем пики, выставляем всю дату в контроллере пиков
+    scope_realtime_peaks_ctx* peaks_data = &used_scope->signal_control_data.peaks_ctx; 
+
+    scope_running_signal_data_ctx* running_data = &used_scope->signal_control_data.running_signal_characteristics;
+
+    scope_realtime_filtering_ctx* filter = &used_scope->signal_control_data.filter_ctx;
+
+    // =========================================================
+    // 0. RAW SIGNAL
+    // =========================================================
+
+    // Сигнал уже записан, head сдвинут, соответственно
+
+    int curr_idx = buffer->head - 1;
+    if (curr_idx < 0) curr_idx += BUFFER_SIZE;      // Сдвиг при проходе кольца
+
+    int prev_idx = buffer->head - 2;
+    if (prev_idx < 0) prev_idx += BUFFER_SIZE;
+
+    // Сэмплы сигнала
+    sample_t curr = buffer->samples[curr_idx];
+    sample_t prev = buffer->samples[prev_idx];
+
+    float x_curr = curr.value;
+    double t_curr = curr.time;
+
+    float x_prev = prev.value;
+    double t_prev = prev.time;
+
+
+    // =========================================================
+    // 0. TREND ANALYSIS
+    // =========================================================
+
+    trend_type curr_trend;
+    trend_type prev_trend;
+
+    // Last trend (Static at init point)
+
+    prev_trend = peaks_data->prev_trend;
+
+    // Current trend
+
+    if (x_curr == x_prev) curr_trend = STATIC_PT;
+    else if (x_curr > x_prev) curr_trend = RISING_PT;
+    else curr_trend = FALLING_PT;
+
+
+    // =========================================================
+    // 1. PEAKS FIXATION
+    // =========================================================
+
+    bool peak_trend_status = false;
+    bool trough_trend_status = false;
+    bool trend_continuation_status = false;
+
+    // Яма
+    if (prev_trend == FALLING_PT && curr_trend == RISING_PT) trough_trend_status = true;
+
+    // Пик
+    else if (prev_trend == RISING_PT && curr_trend == FALLING_PT) peak_trend_status = true;
+
+    // Статичный тренд (2 подъема подряд, 2 опуска подряд, 2 равенства подряд)
+    if (prev_trend == curr_trend) trend_continuation_status = true;
+
+
+    // Проверка доверия к событию:
+
+    // Если одинаково подряд => confidence растёт
+    // Если туда-сюда => он колеблется около нуля
+    // Если хаос / шум => он разрушается
+
+    if (trend_continuation_status) peaks_data->trend_confidence += 1.0f;
+    
+    // if (curr_trend == STATIC_PT) peaks_data->trend_confidence -= 0.0f;
+
+    if (!trend_continuation_status) peaks_data->trend_confidence -= 1.0f;
+
+
+    // ===== Чек пиков и ям, установка минимумов и максимумов =====
+
+    // Новое значение - новый пик
+    if (peak_trend_status)
+    {
+        // Прошлый кандидат становится пиком
+        peaks_data->last_peak = peaks_data->peak_candidate;
+
+        // Текущий пик становится кандидатом
+        peaks_data->peak_candidate = x_curr; 
+
+        // ??? Может сломать всё ???
+        peaks_data->last_event_confidence = peaks_data->trend_confidence;
+
+
+        // ===== Чек максимума =====
+
+        float current_max = peaks_data->last_peak > peaks_data->peak_candidate ? peaks_data->last_peak : peaks_data->peak_candidate;
+
+        bool curr_max_confidence_status = (peaks_data->max_confidence < peaks_data->trend_confidence); 
+
+        if ((current_max > peaks_data->max_candidate) && curr_max_confidence_status)
+        {   
+            // Прошлый кандидат становится максимумом
+            peaks_data->running_max = peaks_data->max_candidate;
+
+            // Текущий пик становится кандидатом
+            peaks_data->max_candidate = current_max;
+
+            peaks_data->max_confidence = peaks_data->trend_confidence;
+        }
+    } 
+
+    // Новое значение - новая яма
+    else if (trough_trend_status)
+    {
+        peaks_data->last_trough = peaks_data->trough_candidate;
+        peaks_data->trough_candidate = x_curr; 
+
+        // ??? Может сломать всё ???
+        peaks_data->last_event_confidence = peaks_data->trend_confidence;
+
+
+        // ===== Чек минимума =====
+
+        float current_min = peaks_data->last_trough < peaks_data->peak_candidate ? peaks_data->last_trough : peaks_data->peak_candidate;
+
+        bool curr_min_confidence_status = (peaks_data->min_confidence < peaks_data->trend_confidence); 
+
+        if ((current_min < peaks_data->min_candidate) && curr_min_confidence_status)
+        {   
+            peaks_data->running_min = peaks_data->min_candidate;
+            peaks_data->min_candidate = current_min;
+
+            peaks_data->min_confidence = peaks_data->trend_confidence;
+        }
+    } 
+
+    
+    // ===== Чек пиков и ям, установка минимумов и максимумов =====
+
+
+    // =========================================================
+    // 3. Zero-cross detection with halfwaves detector 
+    // state-machine feedback
+    // =========================================================
+
+    // Проверка адекватности поступившего значения
+    
+    float deviation = fabsf(x_curr - running_data->running_dc_offset);
+
+    // 0.1σ → почти гарантированный шум
+    // 0.5σ → слабый сигнал, но уже интересный
+    // 1.0σ → вероятно реальное отклонение
+    // 2–3σ → почти точно событие
+    
+    float sigma = sqrt(filter->running_sigma_squad;
+
+    // Статус zero-cross перерехода сигнала
+    bool not_noise = ((deviation > 0.5 * sigma));
+
+
+    // Контроль допустимости пиков
+    // float sigma_zc_normalized = sigma / (fabs(running_data->c) + 1e-6f);
+
+    // Контроль допустимости zero-cross
+
+    // float sigma_zc_normalized = sigma / (fabs(running_data->running_dc_offset) + 1e-6f);
+
+
+    
+
 }
 
 

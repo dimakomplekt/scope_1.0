@@ -233,15 +233,14 @@ typedef struct scope_measured_signal_data_ctx {
 // ===== Основные характеристики всего сигнала =====
 
 
-// ===== Полуволна =====
+// =====  Peak-детектор + полуволна =====
 
 // Типы трендов
 typedef enum trend_type {
 
+    STATIC_PT,       // Неподвижный сигнал
     RISING_PT,      // Восходящий сигнал
     FALLING_PT,     // Нисходящий сигнал
-
-    LIMIT_PT
 
 } trend_type;
 
@@ -269,6 +268,7 @@ typedef struct scope_realtime_peaks_ctx {
     trend_type prev_trend;              // Предыдущий тренд сигнала
 
     float trend_confidence;
+    
     float last_event_confidence;
 
     float peak_candidate;               // Кандидат на пик
