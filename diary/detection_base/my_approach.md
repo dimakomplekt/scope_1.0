@@ -506,9 +506,9 @@ void scope_buffer_analysis_1(Scope* used_scope)
     sample_t curr = buffer->samples[curr_idx];
     sample_t prev = buffer->samples[prev_idx];
 
-    float x_curr = curr.value;
-    double t_curr = curr.time;
-    float x_prev = prev.value;
+    float curr_x = curr.value;
+    double curr_t = curr.time;
+    float prev_x = prev.value;
 
 
     // =========================================================
@@ -525,11 +525,11 @@ void scope_buffer_analysis_1(Scope* used_scope)
     // =========================================================
 
     // 2.1 running_mean (EMA)
-    running_data->running_mean.mean += running_data->running_mean.alpha * (x_curr - running_data->running_mean.mean);
+    running_data->running_mean.mean += running_data->running_mean.alpha * (curr_x - running_data->running_mean.mean);
 
 
     // 2.2 RUNNING MEDIAN (robust center estimator via Sign-LMS)
-    float error = x_curr - running_data->running_median.median;
+    float error = curr_x - running_data->running_median.median;
 
     // Направление коррекции скорости (дрифта)
     if (error > 0.0f)
@@ -558,7 +558,7 @@ void scope_buffer_analysis_1(Scope* used_scope)
     // 3. NOISE MODEL (Интеграция дисперсии шума)
     // =========================================================
 
-    float diff = x_curr - running_data->running_dc_offset;
+    float diff = curr_x - running_data->running_dc_offset;
     float diff_squad = diff * diff;
 
     float sigma_squad = filter_data->running_sigma_squad;
@@ -625,7 +625,7 @@ threshold = k * sigma
 Это:
 
 trend
-velocity (x - x_prev)
+velocity (x - prev_x)
 peak / trough / zero-cross
 
 смысл:
@@ -865,9 +865,9 @@ float last_trough;
 
 ```c
 
-if (x > x_prev) trend = RISING;
+if (x > prev_x) trend = RISING;
 
-else if (x < x_prev) trend = FALLING;
+else if (x < prev_x) trend = FALLING;
 
 ```
 
@@ -932,7 +932,7 @@ float last_event_confidence;
 
 ``` c
 
-if (x > x_prev)
+if (x > prev_x)
     ctrl->trend_confidence += 1;
 else
     ctrl->trend_confidence -= 1;
@@ -978,9 +978,9 @@ void scope_buffer_analysis_2(Scope* used_scope)
     sample_t curr = buffer->samples[curr_idx];
     sample_t prev = buffer->samples[prev_idx];
 
-    float x_curr = curr.value;
-    double t_curr = curr.time;
-    float x_prev = prev.value;
+    float curr_x = curr.value;
+    double curr_t = curr.time;
+    float prev_x = prev.value;
 
 
     // =========================================================
@@ -997,11 +997,11 @@ void scope_buffer_analysis_2(Scope* used_scope)
     // =========================================================
 
     // 2.1 running_mean (EMA)
-    running_data->running_mean.mean += running_data->running_mean.alpha * (x_curr - running_data->running_mean.mean);
+    running_data->running_mean.mean += running_data->running_mean.alpha * (curr_x - running_data->running_mean.mean);
 
 
     // 2.2 RUNNING MEDIAN (robust center estimator via Sign-LMS)
-    float error = x_curr - running_data->running_median.median;
+    float error = curr_x - running_data->running_median.median;
 
     // Направление коррекции скорости (дрифта)
     if (error > 0.0f)
@@ -1030,7 +1030,7 @@ void scope_buffer_analysis_2(Scope* used_scope)
     // 3. NOISE MODEL (Интеграция дисперсии шума)
     // =========================================================
 
-    float diff = x_curr - running_data->running_dc_offset;
+    float diff = curr_x - running_data->running_dc_offset;
     float diff_squad = diff * diff;
 
     float sigma_squad = filter_data->running_sigma_squad;
@@ -1053,9 +1053,9 @@ void scope_buffer_analysis_2(Scope* used_scope)
     // 5. TREND DETECTION
     // =========================================================
 
-    if (x > x_prev)
+    if (x > prev_x)
         ctrl->trend = 1;
-    else if (x < x_prev)
+    else if (x < prev_x)
         ctrl->trend = -1;
 
     // =========================================================
@@ -1094,7 +1094,7 @@ void scope_buffer_analysis_2(Scope* used_scope)
     // Если туда-сюда → он колеблется около нуля
     // Если хаос → он разрушается
 
-    if (x > x_prev)
+    if (x > prev_x)
         ctrl->trend_confidence += 1.0f;
     else
         ctrl->trend_confidence -= 1.0f;
@@ -1195,7 +1195,7 @@ float last_confirmed_min;
 
 velocity = (x - prev_x)
 
-smoothness = 1 / (|x - x_prev| + 1)
+smoothness = 1 / (|x - prev_x| + 1)
 
 stability = sigma
 
@@ -1225,7 +1225,7 @@ confidence -= abs(acceleration)
 // Обновление
 if (ctrl->trend == RISING)
 {
-    float slope = x - x_prev;
+    float slope = x - prev_x;
 
     float normalized = slope / (sigma + 1e-6f);
 
@@ -1237,7 +1237,7 @@ if (ctrl->trend == RISING)
 }
 
 // Скачки - штраф
-if (fabsf(x - x_prev) > k * sigma)
+if (fabsf(x - prev_x) > k * sigma)
 {
     ctrl->max_confidence -= 2.0f;
 }
@@ -1264,7 +1264,7 @@ if (ctrl->trend == FALLING && ctrl->max_confidence > ctrl->min_confidence)
 // Обновление минимума
 if (ctrl->trend == FALLING)
 {
-    float slope = x - x_prev;
+    float slope = x - prev_x;
 
     float normalized = slope / (sigma + 1e-6f);
 
@@ -1276,7 +1276,7 @@ if (ctrl->trend == FALLING)
 }
 
 // Резкие провалы вниз — часто шум или выброс
-if (fabsf(x - x_prev) > k * sigma)
+if (fabsf(x - prev_x) > k * sigma)
 {
     ctrl->min_confidence -= 2.0f;
 }
@@ -1325,7 +1325,7 @@ void scope_buffer_analysis_3(Scope* used_scope)
     sample_t prev = buffer->samples[prev_idx];
 
     float x = curr.value;
-    float x_prev = prev.value;
+    float prev_x = prev.value;
 
     float t = curr.time;
 
@@ -1336,7 +1336,7 @@ void scope_buffer_analysis_3(Scope* used_scope)
     float sigma = sqrtf(ctrl->sigma_squad);
     float inv_sigma = 1.0f / (sigma + 1e-6f);
 
-    float velocity = x - x_prev;
+    float velocity = x - prev_x;
     float abs_velocity = fabsf(velocity);
 
     // =========================================================
@@ -1569,7 +1569,7 @@ Halfwave-детектор
 
 
         // Данные о полуволне, по которым возможно провести анализ паттерна
-        typedef struct halfwave_zero_cross_ctx
+        typedef struct halfwave_data_ctx
         {
             // За 1 проход на приёме данных от buffer_former
 
@@ -1590,7 +1590,7 @@ Halfwave-детектор
             float halfwave_area;                        // Примерная площадь этой полуволны (по главному буфферу от head - до head.halfwave_full_time)
             float halfwave_average_speed;               // Примерная средняя скорость изменения значений в этой полуволне (по главному буфферу от head - до head.halfwave_full_time)
 
-        } halfwave_zero_cross_ctx;
+        } halfwave_data_ctx;
             
         
         // Контекст анализатора переходов, который хранит данные
@@ -1623,7 +1623,7 @@ Halfwave-детектор
 
             wave_pattern_buffer_former_states buffer_former_state;        // Переход какой точки RISING или FALLING через 0 ожидается на приход в формер
 
-            halfwave_zero_cross_ctx curr_halfwave;                    // Текущая анализируемая полуволна, которая при окончании анализа будет передана в zero_crosses_detector
+            halfwave_data_ctx curr_halfwave;                    // Текущая анализируемая полуволна, которая при окончании анализа будет передана в zero_crosses_detector
 
 
             // Инкрементальный счётчик, демонстрирующий на сколько тиков мы ушли от head основного буффера сигнала в 
@@ -1676,7 +1676,7 @@ Halfwave-детектор
         // Хранит данные о последних 64 (128 / 2) вычищенных от шума полуволны с их показателями
         typedef struct wave_pattern_detector_ctx 
         {
-            halfwave_zero_cross_ctx halfwaves_for_detection[64];
+            halfwave_data_ctx halfwaves_for_detection[64];
 
             int head;
             int count;
@@ -1748,7 +1748,7 @@ Halfwave-детектор
         void scope_period_detection(Scope* used_scope)
         {
 
-            wave_pattern_detector_ctx wave_pattern_detector = &used_scope->signal_control_data.scope_wave_pattern_detector;
+            wave_pattern_detector_ctx wave_pattern_detector_data = &used_scope->signal_control_data.scope_wave_pattern_detector;
 
             // Понять по полуволнам из zero_cross_detector паттерн периода
 
@@ -1770,7 +1770,7 @@ Halfwave-детектор
 
 ```c
 
-typedef struct halfwave_zero_cross_ctx
+typedef struct halfwave_data_ctx
 {
     // ===== topology =====
     trend_type halfwave_type;        // RISING / FALLING
@@ -1788,12 +1788,12 @@ typedef struct halfwave_zero_cross_ctx
     float halfwave_area;
     float halfwave_average_speed;
 
-} halfwave_zero_cross_ctx;
+} halfwave_data_ctx;
 
 
 typedef struct wave_pattern_detector_ctx
 {
-    halfwave_zero_cross_ctx halfwaves_for_detection[64];
+    halfwave_data_ctx halfwaves_for_detection[64];
 
     int head;   // индекс последней записи
     int count;  // текущее количество элементов (≤ 64)
@@ -1846,8 +1846,8 @@ static inline int idx(int i, int offset, int N)
 
 ``` c
 
-float wave_distance(const halfwave_zero_cross_ctx* a,
-                    const halfwave_zero_cross_ctx* b)
+float wave_distance(const halfwave_data_ctx* a,
+                    const halfwave_data_ctx* b)
 {
     float d = 0.0f;
 
@@ -1868,7 +1868,7 @@ float wave_distance(const halfwave_zero_cross_ctx* a,
 
 ``` c
 
-float block_distance(halfwave_zero_cross_ctx* buf,
+float block_distance(halfwave_data_ctx* buf,
                      int N,
                      int offset,
                      int L)
@@ -1877,10 +1877,10 @@ float block_distance(halfwave_zero_cross_ctx* buf,
 
     for (int i = 0; i < L; i++)
     {
-        const halfwave_zero_cross_ctx* a =
+        const halfwave_data_ctx* a =
             &buf[idx(i, offset, N)];
 
-        const halfwave_zero_cross_ctx* b =
+        const halfwave_data_ctx* b =
             &buf[idx(i + L, offset, N)];
 
         error += wave_distance(a, b);
@@ -1909,7 +1909,7 @@ typedef struct pattern_result
 
 
 ``` c
-pattern_result detect_pattern(halfwave_zero_cross_ctx* buf, int N)
+pattern_result detect_pattern(halfwave_data_ctx* buf, int N)
 {
     pattern_result best;
     best.period_len = 0;
@@ -1950,7 +1950,7 @@ pattern_result detect_pattern(halfwave_zero_cross_ctx* buf, int N)
 
 ``` c
 
-pattern_result detect_pattern(halfwave_zero_cross_ctx* buf, int N)
+pattern_result detect_pattern(halfwave_data_ctx* buf, int N)
 {
     pattern_result best;
     best.period_len = 0;
@@ -2012,7 +2012,7 @@ pattern_result detect_pattern(halfwave_zero_cross_ctx* buf, int N)
 
 int validate_period_repeats(
 
-    halfwave_zero_cross_ctx* buf,
+    halfwave_data_ctx* buf,
     int N,
     int L,
     int offset
@@ -2067,7 +2067,7 @@ typedef struct pattern_candidate
 } pattern_candidate;
 
 
-pattern_result detect_pattern(halfwave_zero_cross_ctx* buf, int N)
+pattern_result detect_pattern(halfwave_data_ctx* buf, int N)
 {
     pattern_result best;
     best.period_len = 0;
@@ -2126,7 +2126,7 @@ pattern_result detect_pattern(halfwave_zero_cross_ctx* buf, int N)
 
 int validate_period_repeats_fast(
 
-    halfwave_zero_cross_ctx* buf,
+    halfwave_data_ctx* buf,
     int N,
     int L,
     int offset,
@@ -2150,10 +2150,10 @@ int validate_period_repeats_fast(
         // INLINE block_distance (без повторных вызовов функций)
         for (int i = 0; i < L; i++)
         {
-            const halfwave_zero_cross_ctx* a =
+            const halfwave_data_ctx* a =
                 &buf[(a_start + i >= N) ? (a_start + i - N) : (a_start + i)];
 
-            const halfwave_zero_cross_ctx* b =
+            const halfwave_data_ctx* b =
                 &buf[(b_start + i >= N) ? (b_start + i - N) : (b_start + i)];
 
             // inline wave_distance

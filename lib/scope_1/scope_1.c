@@ -91,7 +91,14 @@ void runtime_data_update(Scope* used_scope);            // Апдейт runtime-
 
 void runtime_detect_peaks(Scope* used_scope);           // Обнаружение пиков
 
-void runtime_detect_halfwaves(Scope* used_scope);       // Обнаружение полуволн (внутри обнаружения пиков)
+// Обнаружение полуволн (внутри обнаружения пиков)
+void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type current_trend);
+
+// Helper-функция для zero-cross детектора / halfwaves детектора
+void halfwaves_detector_accumulation(Scope* used_scope);
+
+// Helper-функция для zero-cross детектора / halfwaves детектора
+void drop_zc_accumulation(Scope* used_scope);
 
 
 // scope_slow_update() часть анализа
@@ -321,8 +328,12 @@ void scope_running_signal_characteristics_init(Scope* used_scope)
     // 3. FUSION & OFFSET MANAGEMENT
     // =========================================================
     running_data->median_part_in_offset = 0.7f;
-    running_data->mean_part_in_offset   = 0.3f;
-    running_data->running_dc_offset     = 0.0f;
+    running_data->mean_part_in_offset = 0.3f;
+    running_data->running_dc_offset = 0.0f;
+
+
+    running_data->last_not_noise_value = 0.0f;
+    running_data->last_not_noise_time = 0.0f;
 }
 
 
@@ -387,8 +398,8 @@ void scope_peaks_ctx_init(Scope* used_scope)
 
     peaks_ctx->prev_trend = FALLING_PT;         // Предыдущий тренд сигнала - предполагается falling, сменится сразу после
 
-    peaks_ctx->trend_confidence = 1.0f;            // Максимальное доверие к первому тренду
-    peaks_ctx->last_event_confidence = 1.0f;       // Максимальное доверие к прошлому ивенту
+    peaks_ctx->trend_confidence = 1.0f;         // Максимальное доверие к первому тренду
+    peaks_ctx->last_event_confidence = 1.0f;    // Максимальное доверие к прошлому ивенту
 
     peaks_ctx->peak_candidate = -FLT_MAX;       // Кандидат на пик
     peaks_ctx->trough_candidate = FLT_MAX;      // Кандидат на яму
@@ -399,8 +410,8 @@ void scope_peaks_ctx_init(Scope* used_scope)
     peaks_ctx->max_candidate = -FLT_MAX;        // Кандидат на максимум
     peaks_ctx->min_candidate = FLT_MAX;         // Кандидат на минимум
 
-    peaks_ctx->max_confidence = 1.0f;              // Уверенность в кандидате
-    peaks_ctx->min_confidence = 1.0f;              // Уверенность в кандидате
+    peaks_ctx->max_confidence = 1.0f;           // Уверенность в кандидате
+    peaks_ctx->min_confidence = 1.0f;           // Уверенность в кандидате
 
 
     peaks_ctx->running_max = -FLT_MAX;          // Текущее максимальное значение
@@ -413,7 +424,7 @@ void scope_peaks_ctx_init(Scope* used_scope)
 
 void scope_wave_pattern_detector_former_init(Scope* used_scope)
 {
-    wave_pattern_detector_former_ctx* wpdf_ctx = &used_scope->signal_control_data.wave_pattern_detector_former;
+    wave_pattern_detector_former_ctx* wpdf_ctx = &used_scope->signal_control_data.wave_pattern_detector_former_data;
 
     // Ожидание восходящего zero-cross с любой позиции приёма первых данных
     wpdf_ctx->buffer_former_state = LIMIT_FS;
@@ -457,7 +468,7 @@ void scope_wave_pattern_detector_former_init(Scope* used_scope)
 
 void scope_wave_pattern_detector_init(Scope* used_scope)
 {
-    wave_pattern_detector_ctx* wpd_ctx = &used_scope->signal_control_data.wave_pattern_detector;
+    wave_pattern_detector_ctx* wpd_ctx = &used_scope->signal_control_data.wave_pattern_detector_data;
 
     wpd_ctx->head = 0;
     wpd_ctx->count = 0;
@@ -759,9 +770,9 @@ void runtime_data_update(Scope* used_scope)
     sample_t curr = buffer->samples[curr_idx];
     sample_t prev = buffer->samples[prev_idx];
 
-    float x_curr = curr.value;
-    double t_curr = curr.time;
-    float x_prev = prev.value;
+    float curr_x = curr.value;
+    double curr_t = curr.time;
+    float prev_x = prev.value;
 
 
     // =========================================================
@@ -778,11 +789,11 @@ void runtime_data_update(Scope* used_scope)
     // =========================================================
 
     // 2.1 running_mean (EMA)
-    running_data->running_mean.mean += running_data->running_mean.alpha * (x_curr - running_data->running_mean.mean);
+    running_data->running_mean.mean += running_data->running_mean.alpha * (curr_x - running_data->running_mean.mean);
 
 
     // 2.2 RUNNING MEDIAN (robust center estimator via Sign-LMS)
-    float error = x_curr - running_data->running_median.median;
+    float error = curr_x - running_data->running_median.median;
 
     // Направление коррекции скорости (дрифта)
     if (error > 0.0f)
@@ -811,7 +822,7 @@ void runtime_data_update(Scope* used_scope)
     // 3. NOISE MODEL (Интеграция дисперсии шума)
     // =========================================================
 
-    float diff = x_curr - running_data->running_dc_offset;
+    float diff = curr_x - running_data->running_dc_offset;
     float diff_squad = diff * diff;
 
     float sigma_squad = filter_data->running_sigma_squad;
@@ -865,11 +876,11 @@ void runtime_detect_peaks(Scope* used_scope)
     sample_t curr = buffer->samples[curr_idx];
     sample_t prev = buffer->samples[prev_idx];
 
-    float x_curr = curr.value;
-    double t_curr = curr.time;
+    float curr_x = curr.value;
+    double curr_t = curr.time;
 
-    float x_prev = prev.value;
-    double t_prev = prev.time;
+    float prev_x = prev.value;
+    double prev_t = prev.time;
 
 
     // =========================================================
@@ -885,8 +896,8 @@ void runtime_detect_peaks(Scope* used_scope)
 
     // Current trend
 
-    if (x_curr == x_prev) curr_trend = STATIC_PT;
-    else if (x_curr > x_prev) curr_trend = RISING_PT;
+    if (curr_x == prev_x) curr_trend = STATIC_PT;
+    else if (curr_x > prev_x) curr_trend = RISING_PT;
     else curr_trend = FALLING_PT;
 
 
@@ -930,7 +941,7 @@ void runtime_detect_peaks(Scope* used_scope)
         peaks_data->last_peak = peaks_data->peak_candidate;
 
         // Текущий пик становится кандидатом
-        peaks_data->peak_candidate = x_curr; 
+        peaks_data->peak_candidate = curr_x; 
 
         // ??? Может сломать всё ???
         peaks_data->last_event_confidence = peaks_data->trend_confidence;
@@ -958,7 +969,7 @@ void runtime_detect_peaks(Scope* used_scope)
     else if (trough_trend_status)
     {
         peaks_data->last_trough = peaks_data->trough_candidate;
-        peaks_data->trough_candidate = x_curr; 
+        peaks_data->trough_candidate = curr_x; 
 
         // ??? Может сломать всё ???
         peaks_data->last_event_confidence = peaks_data->trend_confidence;
@@ -985,12 +996,12 @@ void runtime_detect_peaks(Scope* used_scope)
 
     // =========================================================
     // 3. Zero-cross detection with halfwaves detector 
-    // state-machine feedback
+    // state-machine / halfwaves detector ctx feedback
     // =========================================================
 
-    // Проверка адекватности поступившего значения
+    // Проверка адекватности поступившего значения для чека zero-cross
     
-    float deviation = fabsf(x_curr - running_data->running_dc_offset);
+    float deviation = fabsf(curr_x - running_data->running_dc_offset);
 
     // 0.1σ → почти гарантированный шум
     // 0.5σ → слабый сигнал, но уже интересный
@@ -1003,26 +1014,176 @@ void runtime_detect_peaks(Scope* used_scope)
     bool not_noise = ((deviation > 0.5 * sigma));
 
 
-    // Контроль допустимости пиков
-    // float sigma_zc_normalized = sigma / (fabs(running_data->c) + 1e-6f);
+    // Исходя из:
+    //
+    //  1) текущего характера тренда - curr_trend
+    //  2) статуса по проверке сигнала на шум - not_noise
+    //  3) текущего состояния state-машины halfwaves detector
+    //  4) текущего контекста halfwaves detector
+    //
+    // Необходимо детектировать текущие переходы через zero-cross
+    // по обозначенной методике.
+    //
+    // В промежуточном состоянии (между zero-cross) необходимо
+    // детектировать и аккумулировать скорость изменения сигнала и
+    // площадь полуволны. При шумовых возвратах через dc_offset +- tresh нужно
+    // сбрасывать counter-ы и полученные значения, чтобы в характеристики полуволны
+    // включались только полезные значения.
+    //
+    // Промежуточным итогом работы данной секции является поступление в 
+    // Итогом работы данной секции является поступление в wave_pattern_detector_ctx 
 
-    // Контроль допустимости zero-cross
+    // Если текущее значение не шум - производим действия
+    if (not_noise)
+    {
+        // Helper-функция по детекции zero-cross и заполнению буффера
+        runtime_detect_halfwaves(used_scope, curr_x, curr_trend);
 
-    // float sigma_zc_normalized = sigma / (fabs(running_data->running_dc_offset) + 1e-6f);
 
-
-    
-
+        // После прохода детектора обновляем данные о последних не шумных значениях
+        // которые используются для расчёта скорости волны при пропусках шагов буффера
+        // из-за шума
+        running_data->last_not_noise_time = curr_t;
+        running_data->last_not_noise_value = curr_x;
+    }
 }
 
 
-void runtime_detect_halfwaves(Scope* used_scope)
+void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type current_trend)
 {
-    // Проверяем на zero-cross c учетом доверия к данным от peak-детектора
-    // по текущему runtime_dc_offset
+    wave_pattern_detector_former_ctx* wpdf_ctx = &used_scope->signal_control_data.wave_pattern_detector_former_data;
 
-    // При обнаружении переходов действуем, согласно логике стейт-машины обнаружения переходов
+    wave_pattern_detector_ctx* wpd_ctx = &used_scope->signal_control_data.wave_pattern_detector_data;
+
+    scope_realtime_filtering_ctx* filter = &used_scope->signal_control_data.filter_ctx;
+
+
+    wave_pattern_buffer_former_states* curr_waited_state = &wpdf_ctx->buffer_former_state;
+
+    float curr_dc_offset = used_scope->signal_control_data.running_signal_characteristics.running_dc_offset;
+    float curr_treshold = filter->running_treshold;
+
+    // После перезагрузки начинаем работу с первого восходящего через dc_offset
+    if (*curr_waited_state == LIMIT_FS) *curr_waited_state = WAIT_RISING_MINUS_FS;
+
+
+    // State machine main flags for this step
+
+    // Rising ZC
+    bool higher_than_dc_minus_treshold = (current_value > (curr_dc_offset - curr_treshold));
+    bool higher_than_dc_plus_treshold = (current_value > (curr_dc_offset + curr_treshold));
+
+    // Falling ZC
+    bool lower_than_dc_plus_treshold = (current_value < (curr_dc_offset + curr_treshold));
+    bool lower_than_dc_minus_treshold = (current_value < (curr_dc_offset - curr_treshold));
+
+
+    // В случае дефолтной позиции текущего значения сигнала (не переход через dc_offfset)
+    // производим аккумуляцию текущих значений в контексте
+    
+    // В случае захода и дропа производим сброс значений времени
+
+    // State-machine
+    switch (*curr_waited_state)
+    {
+        case WAIT_RISING_MINUS_FS:
+
+            // Set curr halfwave as RISING
+            wpdf_ctx->curr_halfwave.halfwave_type = RISING_PT;
+
+            if () halfwaves_detector_accumulation(used_scope);
+
+            // drop times case
+            if () drop_zc_accumulation(used_scope);
+
+            break;
+            
+
+        case WAIT_RISING_PLUS_FS:
+
+            if () halfwaves_detector_accumulation(used_scope);
+
+
+            // drop times case
+            if () drop_zc_accumulation(used_scope);
+        
+            break;
+
+
+        case WAIT_FALLING_PLUS_FS:
+
+            if () halfwaves_detector_accumulation(used_scope);
+
+
+            // drop times case
+            if () drop_zc_accumulation(used_scope);
+        
+            break;
+
+
+        case WAIT_FALLING_MINUS_FS:
+            
+            if () halfwaves_detector_accumulation(used_scope);
+
+
+            // drop times case
+            if () drop_zc_accumulation(used_scope);
+        
+            break;
+
+
+
+        default: break;
+    }
+
 }
+
+void halfwaves_detector_accumulation(Scope* used_scope)
+{
+    // Accumulate by curr and prev
+}
+
+
+void drop_zc_accumulation(Scope* used_scope)
+{
+    wave_pattern_detector_former_ctx* wpdf_ctx = &used_scope->signal_control_data.wave_pattern_detector_former_data;
+
+    // ===== Сброс аккумуляторов ===== 
+    wpdf_ctx->point_1_time = 0.0f;
+    wpdf_ctx->point_2_time = 0.0f;
+
+    // Инкрементальный счётчик количества измерений сигнала в текущей полуволне
+    wpdf_ctx->halfwave_parts_counter = 0;
+
+    wpdf_ctx->prev_clean_signal_value = 0.0f;
+    wpdf_ctx->prev_clean_signal_time = 0.0f;
+
+    // Средняя скорость текущей полуволны
+    wpdf_ctx->average_halfwave_velocity = 0.0f;
+
+    // Площадь текущей полуволны
+    wpdf_ctx->halfwave_area = 0.0f; 
+
+    // ===== Сброс аккумуляторов =====
+
+
+    // ===== Сброс контекста под передачу в один из cleaned_zero_cross halfwave_zero_crosses[2] =====
+
+    wpdf_ctx->curr_halfwave.halfwave_type = STATIC_PT;
+    wpdf_ctx->curr_halfwave.start_time = 0.0f;
+    wpdf_ctx->curr_halfwave.end_time = 0.0f;
+
+    wpdf_ctx->curr_halfwave.halfwave_full_time = 0.0f;
+
+    wpdf_ctx->curr_halfwave.peak_value = -FLT_MAX;
+    wpdf_ctx->curr_halfwave.trough_value = FLT_MAX;
+    wpdf_ctx->curr_halfwave.halfwave_area = 0.0f;
+    wpdf_ctx->curr_halfwave.halfwave_average_speed = 0.0f;
+
+    // ===== Сброс контекста под передачу в один из cleaned_zero_cross halfwave_zero_crosses[2] =====
+
+}
+
 
 
 // scope_slow_update() часть анализа

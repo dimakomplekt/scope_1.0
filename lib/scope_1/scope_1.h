@@ -207,6 +207,11 @@ typedef struct scope_running_signal_data_ctx {
 
     float running_dc_offset;
 
+    // Используются в детекторе полуволн для расчёта скорости волны
+    // при пропусках шагов буффера из-за шума
+    float last_not_noise_value;
+    float last_not_noise_time;
+
 } scope_running_signal_data_ctx;
 
 
@@ -306,7 +311,7 @@ typedef struct cleaned_zero_cross
 
 // Данные о полуволне, по которым возможно провести анализ паттерна
 // Оформляется для текущей контролируемой полуволны в peak_detector 
-typedef struct halfwave_zero_cross_ctx
+typedef struct halfwave_data_ctx
 {
     // За 1 проход на приёме данных от buffer_former
 
@@ -327,7 +332,7 @@ typedef struct halfwave_zero_cross_ctx
     float halfwave_area;                 // Примерная площадь этой полуволны (по главному буфферу от head - до head.halfwave_full_time)
     float halfwave_average_speed;        // Примерная средняя скорость изменения значений в этой полуволне (по главному буфферу от head - до head.halfwave_full_time)
 
-} halfwave_zero_cross_ctx;
+} halfwave_data_ctx;
 
 
 // Двухпороговый захват времени с переобновлением текущей границы при повторных входах
@@ -345,7 +350,7 @@ typedef struct wave_pattern_detector_former_ctx
 
     wave_pattern_buffer_former_states buffer_former_state;    // Переход какой точки RISING или FALLING через 0 ожидается на приход в формер
 
-    halfwave_zero_cross_ctx curr_halfwave;                    // Текущая анализируемая полуволна, которая при окончании анализа будет передана в zero_crosses_detector
+    halfwave_data_ctx curr_halfwave;                          // Текущая анализируемая полуволна, которая при окончании анализа будет передана в zero_crosses_detector
 
 
     // Инкрементальный счётчик, демонстрирующий на сколько тиков мы ушли от head основного буффера сигнала в 
@@ -361,6 +366,7 @@ typedef struct wave_pattern_detector_former_ctx
 
     double point_1_time;     // Время 1 перехода через ожидаемый dc_offset +- trashold
     double point_2_time;     // Время 2 перехода через ожидаемый dc_offset +- trashold
+
 
     cleaned_zero_cross halfwave_zero_crosses[2];        // Две заполняемые точки полуволны
 
@@ -415,7 +421,7 @@ typedef struct wave_pattern_detector_former_ctx
 // Используется в анализаторе паттернов и непосредственно при расчёте периода 
 typedef struct wave_pattern_detector_ctx 
 {
-    halfwave_zero_cross_ctx halfwaves_for_detection[64];
+    halfwave_data_ctx halfwaves_for_detection[64];
 
     int head;
     int count;
@@ -1254,9 +1260,9 @@ typedef struct scope_signal_control_ctx
 
     scope_realtime_peaks_ctx peaks_ctx;                                // Data peak-анализатора
 
-    wave_pattern_detector_former_ctx wave_pattern_detector_former;     // Data детектора полуволн
+    wave_pattern_detector_former_ctx wave_pattern_detector_former_data;     // Data детектора полуволн
 
-    wave_pattern_detector_ctx wave_pattern_detector;                   // Буффер полуволн для проверки детектором паттернов / периода
+    wave_pattern_detector_ctx wave_pattern_detector_data;                   // Буффер полуволн для проверки детектором паттернов / периода
 
     // ===== SIGNAL ANALYSATORS DATA =====
 
