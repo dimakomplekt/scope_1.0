@@ -426,8 +426,10 @@ void scope_wave_pattern_detector_former_init(Scope* used_scope)
 {
     wave_pattern_detector_former_ctx* wpdf_ctx = &used_scope->signal_control_data.wave_pattern_detector_former_data;
 
-
-    wpdf_ctx->previous_signal_position = BELOW_ZC_TZ_SP;  // Предыдущая позиция сигнала относительно dc_offset +- treshold
+    // Определяем первичным состоянием former'а ожидание восходящего zero-cross с любой позиции приёма первых данных
+    // чтобы первой фиксируемой полу
+    wpdf_ctx->prev_signal_position = BELOW_ZC_TZ_SP;            // Предыдущая позиция сигнала относительно dc_offset +- treshold
+    wpdf_ctx->prev_buffer_former_state = WAIT_RISING_PLUS_FS;   // Предыдущее состояние former'а (для определения момента смены состояния)
 
     // Ожидание восходящего zero-cross с любой позиции приёма первых данных
     wpdf_ctx->buffer_former_state = LIMIT_FS;
@@ -1053,7 +1055,7 @@ void runtime_detect_peaks(Scope* used_scope)
 }
 
 
-void runtime_detect_halfwaves(Scope* used_scope, float (current_value, trend_type current_trend)
+void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type current_trend)
 {
     wave_pattern_detector_former_ctx* wpdf_ctx = &used_scope->signal_control_data.wave_pattern_detector_former_data;
 
@@ -1062,13 +1064,22 @@ void runtime_detect_halfwaves(Scope* used_scope, float (current_value, trend_typ
     scope_realtime_filtering_ctx* filter = &used_scope->signal_control_data.filter_ctx;
 
 
-    signal_position prev_signal_position = wpdf_ctx->previous_signal_position;
-
+    signal_position prev_signal_position = wpdf_ctx->prev_signal_position;
+    wave_pattern_buffer_former_states prev_buffer_former_state = wpdf_ctx->prev_buffer_former_state;
 
     wave_pattern_buffer_former_states* curr_waited_state = &wpdf_ctx->buffer_former_state;
 
     float curr_dc_offset = used_scope->signal_control_data.running_signal_characteristics.running_dc_offset;
     float curr_treshold = filter->running_treshold;
+
+
+    // При первичном оправдании ожидаемого в wave_pattern_buffer_former_states
+    // стейта выставляет point_1_time и при посылке сигнала на отсутствие 
+    // значимых переходов делает += 1. Если дальнейший значимый переход не оправдывает надежд
+    // из wave_pattern_buffer_former_states - point_1_time сбрасывается (перезаписывается на следующем значимом переходе), а 
+    // тип значимого перехода меняется на предыдущий по стейт машине. Если надежды
+    // оправданы, то записывается point_2_time для текущего перехода, по point_1_time и point_2_time, как  
+    // 0.5 (point_1_time + point_2_time) обновляется halfwave_zero_crosses[n] (в зависимости от типа перехода n = 0 или 1)
 
 
     // State machine main flags for this step

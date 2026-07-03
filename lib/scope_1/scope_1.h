@@ -93,7 +93,7 @@ typedef enum time_units
 
 
 // Текущие единицы отображения частоты
-typedef enum frequncy_units
+typedef enum frequency_units
 {
 
     MILLIHERTZ_FU,
@@ -103,7 +103,7 @@ typedef enum frequncy_units
 
     LIMIT_FU
     
-} frequncy_units;
+} frequency_units;
 
 
 // Тип контролируемого сигнала - КОСТЫЛЬ ПОД ТЕКУЩУЮ ЗАДАЧУ
@@ -243,13 +243,13 @@ typedef struct scope_measured_signal_data_ctx {
 // Типы трендов
 typedef enum trend_type {
 
-    STATIC_PT,       // Неподвижный сигнал
+    STATIC_PT,      // Неподвижный сигнал
     RISING_PT,      // Восходящий сигнал
     FALLING_PT,     // Нисходящий сигнал
 
 } trend_type;
 
-
+// Позиция сигнала относительно treshold zone (dc_offset +- treshold)
 typedef enum signal_position
 {
 
@@ -264,11 +264,12 @@ typedef enum signal_position
 // определенным количеством точек cleaned_zero_cross, к примеру - 128 точками
 typedef enum wave_pattern_buffer_former_states
 {
-    WAIT_RISING_MINUS_FS,
-    WAIT_RISING_PLUS_FS,
 
     WAIT_FALLING_PLUS_FS,
     WAIT_FALLING_MINUS_FS,
+
+    WAIT_RISING_MINUS_FS,
+    WAIT_RISING_PLUS_FS,
 
     LIMIT_FS
 
@@ -351,23 +352,27 @@ typedef struct wave_pattern_detector_former_ctx
 
     /*
 
-        я зашел в 1 зону, у меня rised_without_fall стоит false, сколько раз я бы не дропался и не возвращалолся,
+        Я зашел в 1 зону, у меня rised_without_fall стоит false, сколько раз я бы не дропался и не возвращалолся,
         пока он false я просто обновляю rising_dc_minus_th_time на новое при новом заходе, как только я пересекаю 
         dc_offset + treshold, я ставлю rised_without_fall, как true, ставлю falled_without_rise, как false
         и curr_waited_type переключаю на FALLING
 
     */
    
-    signal_position previous_signal_position;                 // Предыдущая позиция сигнала относительно dc_offset +- treshold
+    signal_position prev_signal_position;                           // Предыдущая позиция сигнала относительно dc_offset +- treshold
 
-    wave_pattern_buffer_former_states buffer_former_state;    // Переход какой точки RISING или FALLING через 0 ожидается на приход в формер
 
-    halfwave_data_ctx curr_halfwave;                          // Текущая анализируемая полуволна, которая при окончании анализа будет передана в zero_crosses_detector
+    wave_pattern_buffer_former_states prev_buffer_former_state;     // Переход какой точки RISING или FALLING через 0 ожидался ранее на приход в формер
+
+    wave_pattern_buffer_former_states buffer_former_state;          // Переход какой точки RISING или FALLING через 0 ожидается на приход в формер
+
+
+    halfwave_data_ctx curr_halfwave;                                // Текущая анализируемая полуволна, которая при окончании анализа будет передана в zero_crosses_detector
 
 
     // Инкрементальный счётчик, демонстрирующий на сколько тиков мы ушли от head основного буффера сигнала в 
     // рамках текущей полуволны. 
-    // 
+    
     // При первичном оправдании ожидаемого в wave_pattern_buffer_former_states
     // стейта выставляет point_1_time и при посылке сигнала на отсутствие 
     // значимых переходов делает += 1. Если дальнейший значимый переход не оправдывает надежд
@@ -410,13 +415,29 @@ typedef struct wave_pattern_detector_former_ctx
         // текущего zero_crosses_detector:
 
 
+    /*
+        Сигнал может скакать вокруг трешхолда.
+
+        Существуют 3 состояния статуса сигнала относительно участка dc_offset +- treshold:
+
+        И 4 состояния текущего и предыдущего ожидания перехода 
+
+        По этим состояниям необходимо понять, как надо производить измерение скорости, измерение площади
+        и фиксацию времени перехода.
+
+        При шумовых переходах (предыдущий ожидаемый стейт - шум, шум - шум, шум - предыдущий ожидаемый стейт
+        вместо текущего ожидаемого стейта) требуется не инкрементировать данные о полуволне, а просто держать
+        последние нормальные поступившие значения счётчика количества сигналов в полуволне, значение и время
+        предыдущего сигнала с допустимым доверием, среднюю скорость и площадь полуволны неизменными до тех пор,
+        пока не произойдет переход "шум - текущий ожидаемый стейт", после чего зафиксировать 1 zero cross, как 
+        среднее арифмитическое между последней чистой точкой и точкой реализации ожидаемого перехода. 
+    
+    */
+
     // Сигналы с низким доверием не участвуют в расчётах 
     // Инкрементальный счётчик количества измерений сигнала в текущей полуволне
     // Используется для поиска средней скорости
     int halfwave_parts_counter;
-
-    float prev_clean_signal_value;          // Значение предыдущего сигнала с допустимым доверием
-    float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
 
     // Средняя скорость текущей полуволны
     float average_halfwave_velocity;
@@ -425,6 +446,11 @@ typedef struct wave_pattern_detector_former_ctx
     // Площадь текущей полуволны
     float halfwave_area;
 
+
+    // Для фиксации последней чистой точки
+
+    float prev_clean_signal_value;          // Значение предыдущего сигнала с допустимым доверием
+    float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
 
 } wave_pattern_detector_former_ctx;
 
@@ -541,6 +567,7 @@ typedef struct scope_gui_basic_parameters
         Общий размер - 22 на 14 единиц (по 50 пикселей в единице)
 
         - Задник (3 части - верхняя, средняя, нижняя)
+
             - Верхняя часть - 22 на 1 единицу
             - Средняя часть - 22 на 12 единиц
             - Нижняя часть - 22 на 1 единицу
@@ -1225,7 +1252,7 @@ typedef struct scope_main_settings
     // Текущие единицы измерения для отображения
     signal_units current_signal_units;              // Всегда вольты
     time_units current_time_units;                  // Переменная времени всегда в секундах, но на рендер адекватнее выводить в другом формате
-    frequncy_units current_frequency_units;         // Переменная времени всегда в герцах, но на рендер адекватнее выводить в другом формате
+    frequency_units current_frequency_units;         // Переменная времени всегда в герцах, но на рендер адекватнее выводить в другом формате
 
     // Сколько вольт в 1 юните (только целые числа для ровной развертки)
     int signal_val_in_one_unit;

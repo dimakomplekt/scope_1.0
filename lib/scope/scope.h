@@ -146,7 +146,7 @@ typedef enum time_units
 } time_units;
 
 
-typedef enum frequncy_units
+typedef enum frequency_units
 {
 
     MILLIHERTZ_FU,
@@ -156,7 +156,7 @@ typedef enum frequncy_units
 
     LIMIT_FU
     
-} frequncy_units;
+} frequency_units;
 
 
 typedef enum controlled_signal_type
@@ -888,7 +888,7 @@ typedef struct scope_main_settings
     // Текущие единицы измерения для отображения
     signal_units current_signal_units;
     time_units current_time_units;                  // Переменная времени всегда в секундах, но на рендер адекватнее выводить в другом формате
-    frequncy_units current_frequency_units;         // Переменная времени всегда в герцах, но на рендер адекватнее выводить в другом формате
+    frequency_units current_frequency_units;         // Переменная времени всегда в герцах, но на рендер адекватнее выводить в другом формате
 
     // Сколько вольт в 1 юните
     int signal_val_in_one_unit;
