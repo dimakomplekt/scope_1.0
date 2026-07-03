@@ -249,6 +249,16 @@ typedef enum trend_type {
 
 } trend_type;
 
+
+typedef enum signal_position
+{
+
+    BELOW_ZC_TZ_SP,
+    INSIDE_ZC_TZ_SP,
+    ABOVE_ZC_TZ_SP,
+
+} signal_position;
+
 // Контекст анализатора переходов, который хранит данные
 // о переходах и выводит их обработку в буффер zero_crosses_detector с
 // определенным количеством точек cleaned_zero_cross, к примеру - 128 точками
@@ -347,6 +357,8 @@ typedef struct wave_pattern_detector_former_ctx
         и curr_waited_type переключаю на FALLING
 
     */
+   
+    signal_position previous_signal_position;                 // Предыдущая позиция сигнала относительно dc_offset +- treshold
 
     wave_pattern_buffer_former_states buffer_former_state;    // Переход какой точки RISING или FALLING через 0 ожидается на приход в формер
 

@@ -426,8 +426,12 @@ void scope_wave_pattern_detector_former_init(Scope* used_scope)
 {
     wave_pattern_detector_former_ctx* wpdf_ctx = &used_scope->signal_control_data.wave_pattern_detector_former_data;
 
+
+    wpdf_ctx->previous_signal_position = BELOW_ZC_TZ_SP;  // Предыдущая позиция сигнала относительно dc_offset +- treshold
+
     // Ожидание восходящего zero-cross с любой позиции приёма первых данных
     wpdf_ctx->buffer_former_state = LIMIT_FS;
+
 
     // Инициализация пустой полуволны (часть данных уйдёт под замену при первом же восходящем zero cross, часть при первом достижении STATIC_PT)
     wpdf_ctx->curr_halfwave.halfwave_type = STATIC_PT;
@@ -1049,7 +1053,7 @@ void runtime_detect_peaks(Scope* used_scope)
 }
 
 
-void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type current_trend)
+void runtime_detect_halfwaves(Scope* used_scope, float (current_value, trend_type current_trend)
 {
     wave_pattern_detector_former_ctx* wpdf_ctx = &used_scope->signal_control_data.wave_pattern_detector_former_data;
 
@@ -1058,24 +1062,40 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
     scope_realtime_filtering_ctx* filter = &used_scope->signal_control_data.filter_ctx;
 
 
+    signal_position prev_signal_position = wpdf_ctx->previous_signal_position;
+
+
     wave_pattern_buffer_former_states* curr_waited_state = &wpdf_ctx->buffer_former_state;
 
     float curr_dc_offset = used_scope->signal_control_data.running_signal_characteristics.running_dc_offset;
     float curr_treshold = filter->running_treshold;
 
-    // После перезагрузки начинаем работу с первого восходящего через dc_offset
-    if (*curr_waited_state == LIMIT_FS) *curr_waited_state = WAIT_RISING_MINUS_FS;
-
 
     // State machine main flags for this step
 
-    // Rising ZC
-    bool higher_than_dc_minus_treshold = (current_value > (curr_dc_offset - curr_treshold));
-    bool higher_than_dc_plus_treshold = (current_value > (curr_dc_offset + curr_treshold));
+    signal_position curr_signal_position;
 
-    // Falling ZC
-    bool lower_than_dc_plus_treshold = (current_value < (curr_dc_offset + curr_treshold));
-    bool lower_than_dc_minus_treshold = (current_value < (curr_dc_offset - curr_treshold));
+    // Rising ZC
+    if (
+        
+        (current_value <= (curr_dc_offset + curr_treshold)) && 
+        (current_value >= (curr_dc_offset - curr_treshold))
+    
+    ) curr_signal_position = INSIDE_ZC_TZ_SP;
+
+    else if (current_value < (curr_dc_offset - curr_treshold)) curr_signal_position = BELOW_ZC_TZ_SP;
+
+    else curr_signal_position = ABOVE_ZC_TZ_SP;
+
+
+    // После перезагрузки при попадании в зону начинаем работу с первого восходящего через dc_offset
+    if (*curr_waited_state == LIMIT_FS && curr_signal_position == BELOW_ZC_TZ_SP) 
+    {
+        *curr_waited_state = WAIT_RISING_MINUS_FS;
+    }
+
+    // Пропустить дальнейшее выполнение логики функции в цикле, если сигнал не вышел в зону инициации
+    if (*curr_waited_state == LIMIT_FS) return;
 
 
     // В случае дефолтной позиции текущего значения сигнала (не переход через dc_offfset)
@@ -1090,6 +1110,39 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
 
             // Set curr halfwave as RISING
             wpdf_ctx->curr_halfwave.halfwave_type = RISING_PT;
+
+            // 3 cases could be possible
+            
+            // Normal case - signal is below treshold zone
+            if (curr_signal_position == BELOW_ZC_TZ_SP)
+            {
+                // Нормальный случай - пришли в зону из такой же зоны
+                if (prev_signal_position == BELOW_ZC_TZ_SP)
+                {
+                    // Копим дату, обновляем параметры
+                }
+
+                // Плохой случай - ждали переход через dc_offset + treshold
+                // получили обратный переход
+                else if (prev_signal_position == INSIDE_ZC_TZ_SP)
+                {
+                    // Пропуск записи, выставление флагов на ожидание
+                }
+
+
+            }
+
+            // Normal middlepass case - signal is inside the treshold zone
+            else if (curr_signal_position == INSIDE_ZC_TZ_SP)
+            {
+
+            }
+
+            else if (curr_signal_position == ABOVE_ZC_TZ_SP)
+            {
+
+            }
+
 
             if () halfwaves_detector_accumulation(used_scope);
 
