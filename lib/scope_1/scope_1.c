@@ -428,8 +428,8 @@ void scope_wave_pattern_detector_former_init(Scope* used_scope)
 
     // Определяем первичным состоянием former'а ожидание восходящего zero-cross с любой позиции приёма первых данных
     // чтобы первой фиксируемой полу
-    wpdf_ctx->prev_signal_position = BELOW_ZC_TZ_SP;            // Предыдущая позиция сигнала относительно dc_offset +- treshold
-    wpdf_ctx->prev_buffer_former_state = WAIT_RISING_PLUS_FS;   // Предыдущее состояние former'а (для определения момента смены состояния)
+    wpdf_ctx->prev_signal_position = INSIDE_ZC_TZ_SP;           // Предыдущая позиция сигнала относительно dc_offset +- treshold
+    wpdf_ctx->prev_buffer_former_state = WAIT_RISING_MINUS_FS;  // Предыдущее состояние former'а (для определения момента смены состояния)
 
     // Ожидание восходящего zero-cross с любой позиции приёма первых данных
     wpdf_ctx->buffer_former_state = LIMIT_FS;
@@ -457,6 +457,8 @@ void scope_wave_pattern_detector_former_init(Scope* used_scope)
     wpdf_ctx->halfwave_zero_crosses[1].zero_cross_type = STATIC_PT;
     wpdf_ctx->halfwave_zero_crosses[1].time = 0.0f;
 
+    // Первично доступ открыт
+    wpdf_ctx->accumulation_block = false;
 
     // Инкрементальный счётчик количества измерений сигнала в текущей полуволне
     wpdf_ctx->halfwave_parts_counter = 0;
@@ -1044,13 +1046,6 @@ void runtime_detect_peaks(Scope* used_scope)
     {
         // Helper-функция по детекции zero-cross и заполнению буффера
         runtime_detect_halfwaves(used_scope, curr_x, curr_trend);
-
-
-        // После прохода детектора обновляем данные о последних не шумных значениях
-        // которые используются для расчёта скорости волны при пропусках шагов буффера
-        // из-за шума
-        running_data->last_not_noise_time = curr_t;
-        running_data->last_not_noise_value = curr_x;
     }
 }
 
@@ -1064,13 +1059,39 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
     scope_realtime_filtering_ctx* filter = &used_scope->signal_control_data.filter_ctx;
 
 
-    signal_position prev_signal_position = wpdf_ctx->prev_signal_position;
-    wave_pattern_buffer_former_states prev_buffer_former_state = wpdf_ctx->prev_buffer_former_state;
+    signal_position* prev_signal_position = &wpdf_ctx->prev_signal_position;
+    wave_pattern_buffer_former_states* prev_buffer_former_state = &wpdf_ctx->prev_buffer_former_state;
 
     wave_pattern_buffer_former_states* curr_waited_state = &wpdf_ctx->buffer_former_state;
 
     float curr_dc_offset = used_scope->signal_control_data.running_signal_characteristics.running_dc_offset;
     float curr_treshold = filter->running_treshold;
+
+
+    // ===== Значения для чистки =====
+
+    float deviation = fabsf(current_value - curr_dc_offset);
+
+    // 0.1σ → почти гарантированный шум
+    // 0.5σ → слабый сигнал, но уже интересный
+    // 1.0σ → вероятно реальное отклонение
+    // 2–3σ → почти точно событие
+    
+    float sigma = sqrt(filter->running_sigma_squad);
+    float noise_value = 0.5 * sigma;
+
+
+    float zc_p = curr_dc_offset + curr_treshold;
+    float zc_m = curr_dc_offset - curr_treshold;
+
+    float noised_zc_mm = zc_m - noise_value;
+    float noised_zc_mp = zc_m + noise_value;
+
+    float noised_zc_pm = zc_p - noise_value;
+    float noised_zc_pp = zc_p + noise_value;
+
+
+    // ===== Значения для чистки =====
 
 
     // При первичном оправдании ожидаемого в wave_pattern_buffer_former_states
@@ -1114,9 +1135,13 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
     
     // В случае захода и дропа производим сброс значений времени
 
+    // В некоторых случаях приход флага noised ведёт к выставлению noised_flag в true, что управляет
+    // логикой аккумуляции данных о полуволне 
+
     // State-machine
     switch (*curr_waited_state)
     {
+
         case WAIT_RISING_MINUS_FS:
 
             // Set curr halfwave as RISING
@@ -1124,24 +1149,70 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
 
             // 3 cases could be possible
             
-            // Normal case - signal is below treshold zone
+            // Normal case - сигнал ниже treshold zone
             if (curr_signal_position == BELOW_ZC_TZ_SP)
             {
-                // Нормальный случай - пришли в зону из такой же зоны
-                if (prev_signal_position == BELOW_ZC_TZ_SP)
+                // 1 случай - пришли в зону из одной из прошлых зон
+                if (*prev_signal_position == ABOVE_ZC_TZ_SP || *prev_signal_position == INSIDE_ZC_TZ_SP)
                 {
-                    // Копим дату, обновляем параметры
+                    // Если не было блока нарастаний (который выставляется при реализации
+                    // первого перехода и возврате к пред. стейту до реализации второго)
+                    if (!wpdf_ctx->accumulation_block)
+                    {
+                        // Для того, чтобы отделить нормальный переход от того, который
+                        // мог быть из-за шума в начале или конце зоны
+                        // Делаем чек на "шумность" относительно нужного трешхолда
+                        if (!(current_value + noise_value >= noised_zc_mm))
+                        {
+                            // Мы перешли и прошли зону шума
+                            // Пишем точку
+                            halfwaves_detector_accumulation(used_scope);
+
+                            // Меняем предыдущую на текущею при завершении прохода
+                            *prev_signal_position = curr_signal_position;
+                        }
+                    }
                 }
 
-                // Плохой случай - ждали переход через dc_offset + treshold
-                // получили обратный переход
-                else if (prev_signal_position == INSIDE_ZC_TZ_SP)
+                // 2 случай - пришли в зону из такой же зоны
+                if (*prev_signal_position == BELOW_ZC_TZ_SP)
                 {
-                    // Пропуск записи, выставление флагов на ожидание
-                }
+                    // Копим дату, обновляем параметры +
+                    // Делаем запись последней нормальной точки,
+                    // В случае, если не был выведен noised flag
+                    if (!wpdf_ctx->accumulation_block)
+                    {
+                        if ((current_value + noise_value <= noised_zc_mm))
+                        {
+                            // Пишем точку
+                            halfwaves_detector_accumulation(used_scope);
 
+                            // Меняем предыдущую на текущею при завершении прохода
+                            *prev_signal_position = curr_signal_position;
+                        }
+                    }
+                }
+            }
+
+            // Перешли в зону трешхолда - ждём нарастающий сигнал
+            if (curr_signal_position == INSIDE_ZC_TZ_SP)
+            {
 
             }
+
+            // Прошли сразу обе зоны за 1 степ -
+            // делаем чек на шум, считаем чистый zero cross
+            // и отправляем его в контекст чистых переходов 
+            if (curr_signal_position == ABOVE_ZC_TZ_SP)
+            {
+
+            }
+
+
+            // В том же духе остальное со сбросами на вторых стейтах
+
+
+
 
             // Normal middlepass case - signal is inside the treshold zone
             else if (curr_signal_position == INSIDE_ZC_TZ_SP)
@@ -1286,10 +1357,9 @@ void signal_fast_analysis(Scope* used_scope)
     runtime_data_update(used_scope);
 
     // Анализируем пики
+    // и детектируем полуволны
     runtime_detect_peaks(used_scope);
 
-    // Проверяем полуволны и заполняем буффер полуволн
-    runtime_detect_halfwaves(used_scope);
 }
 
 
