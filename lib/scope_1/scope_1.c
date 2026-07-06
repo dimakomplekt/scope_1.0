@@ -1103,7 +1103,7 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
     // 0.5 (point_1_time + point_2_time) обновляется halfwave_zero_crosses[n] (в зависимости от типа перехода n = 0 или 1)
 
 
-    // State machine main flags for this step
+    // ===== State machine main flags for this step =====
 
     signal_position curr_signal_position;
 
@@ -1129,6 +1129,10 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
     // Пропустить дальнейшее выполнение логики функции в цикле, если сигнал не вышел в зону инициации
     if (*curr_waited_state == LIMIT_FS) return;
 
+    // ===== State machine main flags for this step =====
+    
+
+    // ===== State machine step =====
 
     // В случае дефолтной позиции текущего значения сигнала (не переход через dc_offfset)
     // производим аккумуляцию текущих значений в контексте
@@ -1141,18 +1145,20 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
     // State-machine
     switch (*curr_waited_state)
     {
+        // ===== CASE 1 =====
 
+        // Ожидаем проход через нижнюю границу трешхолд зоны
         case WAIT_RISING_MINUS_FS:
 
-            // Set curr halfwave as RISING
+            // При подобном ожидании полуволна автоматом - RISING
             wpdf_ctx->curr_halfwave.halfwave_type = RISING_PT;
 
-            // 3 cases could be possible
             
-            // Normal case - сигнал ниже treshold zone
+            // 1 случай - сигнал ниже treshold zone
             if (curr_signal_position == BELOW_ZC_TZ_SP)
             {
-                // 1 случай - пришли в зону из одной из прошлых зон
+                // 1.1 случай - пришли в зону из одной из прошлых зон
+                // TODO: чек надо ли вообще сравниваться с ABOVE
                 if (*prev_signal_position == ABOVE_ZC_TZ_SP || *prev_signal_position == INSIDE_ZC_TZ_SP)
                 {
                     // Если не было блока нарастаний (который выставляется при реализации
@@ -1174,12 +1180,12 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
                     }
                 }
 
-                // 2 случай - пришли в зону из такой же зоны
+                // 1.2 случай - пришли в зону из такой же зоны
                 if (*prev_signal_position == BELOW_ZC_TZ_SP)
                 {
                     // Копим дату, обновляем параметры +
                     // Делаем запись последней нормальной точки,
-                    // В случае, если не был выведен noised flag
+                    // В случае, если не был введен блок аккумуляции 
                     if (!wpdf_ctx->accumulation_block)
                     {
                         if ((current_value + noise_value <= noised_zc_mm))
@@ -1194,82 +1200,262 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
                 }
             }
 
-            // Перешли в зону трешхолда - ждём нарастающий сигнал
-            if (curr_signal_position == INSIDE_ZC_TZ_SP)
+    
+            // Перешли в зону трешхолда - выставляем блок обновлений 
+            // и ждём нарастающий сигнал
+            else if (curr_signal_position == INSIDE_ZC_TZ_SP)
             {
+                // Выставляем блок при нормальном переходе с учетом шума
+                if (!(current_value + noise_value >= noised_zc_mp))
+                {
+                    // Ставим блок на аккумуляцию последующего прихода значений
+                    // по последнему halfwaves_detector_accumulation имеем в памяти:
 
+                        // float prev_clean_signal_value;          // Значение предыдущего сигнала с допустимым доверием
+                        // float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
+
+                    wpdf_ctx->accumulation_block = true;
+
+                    // Меняем ожидание на проход через верхнюю границу трешхолд зоны
+                    // пока она не будет пройдена будет сохраняться блок аккумуляции и 2 
+                    // последних чистых значения сигнала и времени
+                
+                    *curr_waited_state = WAIT_RISING_PLUS_FS;
+
+                    // Меняем предыдущую позицию сигнала на текущею при завершении прохода
+                    *prev_signal_position = curr_signal_position;
+                }
             }
 
             // Прошли сразу обе зоны за 1 степ -
             // делаем чек на шум, считаем чистый zero cross
             // и отправляем его в контекст чистых переходов 
-            if (curr_signal_position == ABOVE_ZC_TZ_SP)
-            {
-
-            }
-
-
-            // В том же духе остальное со сбросами на вторых стейтах
-
-
-
-
-            // Normal middlepass case - signal is inside the treshold zone
-            else if (curr_signal_position == INSIDE_ZC_TZ_SP)
-            {
-
-            }
-
             else if (curr_signal_position == ABOVE_ZC_TZ_SP)
             {
+                // Выставляем блок при нормальном переходе с учетом шума
+                if (!(current_value + noise_value >= noised_zc_pp))
+                {
+                    // Знаем обе крайние точки - это текущая и последняя записанная, как нормальная в:
+                        
+                        // float prev_clean_signal_value;          // Значение предыдущего сигнала с допустимым доверием
+                        // float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
 
+                    // Производим дроп значений с отправкой текущей даты по полуволне
+                    drop_zc_accumulation(used_scope);
+
+                    // Снимаем блок на аккумуляцию последующего прихода значений
+                    wpdf_ctx->accumulation_block = false;
+
+                    // Меняем ожидание на проход через верхнюю границу трешхолд зоны
+                    *curr_waited_state = WAIT_FALLING_PLUS_FS;
+
+                    // Меняем предыдущую позицию сигнала на текущею при завершении прохода
+                    *prev_signal_position = curr_signal_position;
+                }
             }
 
+        // ===== CASE 1 =====
 
-            if () halfwaves_detector_accumulation(used_scope);
 
-            // drop times case
-            if () drop_zc_accumulation(used_scope);
-
-            break;
-            
+        // ===== CASE 2 =====
 
         case WAIT_RISING_PLUS_FS:
 
-            if () halfwaves_detector_accumulation(used_scope);
+            // Нет смены типа полуволны -> wpdf_ctx->curr_halfwave.halfwave_type == RISING_PT;
 
+            // требуемые блоки были выставлены в CASE 1.
+            // в CASE 2 только ожидаем прохода над ABOVE_ZC_TZ_SP
+            // репитим логику с CASE 1 для такого же прохода
 
-            // drop times case
-            if () drop_zc_accumulation(used_scope);
+            if (curr_signal_position == ABOVE_ZC_TZ_SP)
+            {
+                // Выставляем блок при нормальном переходе с учетом шума
+                if (!(current_value + noise_value >= noised_zc_pp))
+                {
+                    // Знаем обе крайние точки - это текущая и последняя записанная, как нормальная в:
+                        
+                        // float prev_clean_signal_value;          // Значение предыдущего сигнала с допустимым доверием
+                        // float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
+
+                    // Производим дроп значений с отправкой текущей даты по полуволне
+                    drop_zc_accumulation(used_scope);
+
+                    // Снимаем блок на аккумуляцию последующего прихода значений
+                    wpdf_ctx->accumulation_block = false;
+
+                    // Меняем ожидание на проход через верхнюю границу трешхолд зоны
+                    *curr_waited_state = WAIT_FALLING_PLUS_FS;
+
+                    // Меняем предыдущую позицию сигнала на текущею при завершении прохода
+                    *prev_signal_position = curr_signal_position;
+                }
+            }
         
             break;
 
+        // ===== CASE 2 =====
+
+
+        // 3 и 4 кейс - инверсии относительно 1 и 2
+
+
+        // ===== CASE 3 =====
 
         case WAIT_FALLING_PLUS_FS:
 
-            if () halfwaves_detector_accumulation(used_scope);
+            // При подобном ожидании полуволна автоматом - FALLING
+            wpdf_ctx->curr_halfwave.halfwave_type = FALLING_PT;
+
+            
+            // 1 случай
+            if (curr_signal_position == ABOVE_ZC_TZ_SP)
+            {
+                // 1.1 случай - пришли в зону из одной из прошлых зон
+                // TODO: чек надо ли вообще сравниваться с ABOVE
+                if (*prev_signal_position == BELOW_ZC_TZ_SP || *prev_signal_position == INSIDE_ZC_TZ_SP)
+                {
+                    // Если не было блока нарастаний (который выставляется при реализации
+                    // первого перехода и возврате к пред. стейту до реализации второго)
+                    if (!wpdf_ctx->accumulation_block)
+                    {
+                        // Для того, чтобы отделить нормальный переход от того, который
+                        // мог быть из-за шума в начале или конце зоны
+                        // Делаем чек на "шумность" относительно нужного трешхолда
+                        if (!(current_value + noise_value <= noised_zc_pm))
+                        {
+                            // Мы перешли и прошли зону шума
+                            // Пишем точку
+                            halfwaves_detector_accumulation(used_scope);
+
+                            // Меняем предыдущую на текущею при завершении прохода
+                            *prev_signal_position = curr_signal_position;
+                        }
+                    }
+                }
+
+                // 1.2 случай - пришли в зону из такой же зоны
+                if (*prev_signal_position == ABOVE_ZC_TZ_SP)
+                {
+                    // Копим дату, обновляем параметры +
+                    // Делаем запись последней нормальной точки,
+                    // В случае, если не был введен блок аккумуляции 
+                    if (!wpdf_ctx->accumulation_block)
+                    {
+                        if ((current_value + noise_value >= noised_zc_pp))
+                        {
+                            // Пишем точку
+                            halfwaves_detector_accumulation(used_scope);
+
+                            // Меняем предыдущую на текущею при завершении прохода
+                            *prev_signal_position = curr_signal_position;
+                        }
+                    }
+                }
+            }
 
 
-            // drop times case
-            if () drop_zc_accumulation(used_scope);
+            // 2 случай - Перешли в зону трешхолда - выставляем блок обновлений 
+            // и ждём нарастающий сигнал
+            else if (curr_signal_position == INSIDE_ZC_TZ_SP)
+            {
+                // Выставляем блок при нормальном переходе с учетом шума
+                if (!(current_value - noise_value >= noised_zc_pm))
+                {
+                    // Ставим блок на аккумуляцию последующего прихода значений
+                    // по последнему halfwaves_detector_accumulation имеем в памяти:
+
+                        // float prev_clean_signal_value;          // Значение предыдущего сигнала с допустимым доверием
+                        // float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
+
+                    wpdf_ctx->accumulation_block = true;
+
+                    // Меняем ожидание на проход через верхнюю границу трешхолд зоны
+                    // пока она не будет пройдена будет сохраняться блок аккумуляции и 2 
+                    // последних чистых значения сигнала и времени
+                
+                    *curr_waited_state = WAIT_FALLING_MINUS_FS;
+
+                    // Меняем предыдущую позицию сигнала на текущею при завершении прохода
+                    *prev_signal_position = curr_signal_position;
+                }
+            }
+
+            // 3 случай - Прошли сразу обе зоны за 1 степ -
+            // делаем чек на шум, считаем чистый zero cross
+            // и отправляем его в контекст чистых переходов 
+            if (curr_signal_position == BELOW_ZC_TZ_SP)
+            {
+                // Выставляем блок при нормальном переходе с учетом шума
+                if (!(current_value - noise_value >= noised_zc_pm))
+                {
+                    // Знаем обе крайние точки - это текущая и последняя записанная, как нормальная в:
+                        
+                        // float prev_clean_signal_value;          // Значение предыдущего сигнала с допустимым доверием
+                        // float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
+
+                    // Производим дроп значений с отправкой текущей даты по полуволне
+                    drop_zc_accumulation(used_scope);
+
+                    // Снимаем блок на аккумуляцию последующего прихода значений
+                    wpdf_ctx->accumulation_block = false;
+
+                    // Меняем ожидание на проход через верхнюю границу трешхолд зоны
+                    *curr_waited_state = WAIT_RISING_MINUS_FS;
+
+                    // Меняем предыдущую позицию сигнала на текущею при завершении прохода
+                    *prev_signal_position = curr_signal_position;
+                }
         
             break;
 
+        // ===== CASE 3 =====
+
+
+        // ===== CASE 4 =====
 
         case WAIT_FALLING_MINUS_FS:
             
-            if () halfwaves_detector_accumulation(used_scope);
+            // Нет смены типа полуволны -> wpdf_ctx->curr_halfwave.halfwave_type == FALLING_PT;
 
+            // требуемые блоки были выставлены в CASE 3.
+            // в CASE 4 только ожидаем прохода над BELOW_ZC_TZ_SP
+            // репитим логику с CASE 3 для такого же прохода
 
-            // drop times case
-            if () drop_zc_accumulation(used_scope);
+            if (curr_signal_position == BELOW_ZC_TZ_SP)
+            {
+                // Выставляем блок при нормальном переходе с учетом шума
+                if (!(current_value - noise_value >= noised_zc_pm))
+                {
+                    // Знаем обе крайние точки - это текущая и последняя записанная, как нормальная в:
+                        
+                        // float prev_clean_signal_value;          // Значение предыдущего сигнала с допустимым доверием
+                        // float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
+
+                    // Производим дроп значений с отправкой текущей даты по полуволне
+                    drop_zc_accumulation(used_scope);
+
+                    // Снимаем блок на аккумуляцию последующего прихода значений
+                    wpdf_ctx->accumulation_block = false;
+
+                    // Меняем ожидание на проход через верхнюю границу трешхолд зоны
+                    *curr_waited_state = WAIT_RISING_MINUS_FS;
+
+                    // Меняем предыдущую позицию сигнала на текущею при завершении прохода
+                    *prev_signal_position = curr_signal_position;
+                }
+            }
         
             break;
 
+        // ===== CASE 4 =====
 
 
         default: break;
     }
+
+    // ===== State machine step =====
+
+
 
 }
 
