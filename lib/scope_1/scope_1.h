@@ -443,13 +443,6 @@ typedef struct wave_pattern_detector_former_ctx
     // Используется для поиска средней скорости
     int halfwave_parts_counter;
 
-    // Средняя скорость текущей полуволны
-    float average_halfwave_velocity;
-
-
-    // Площадь текущей полуволны
-    float halfwave_area;
-
 
     // Для фиксации последней чистой точки
 

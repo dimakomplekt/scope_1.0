@@ -92,10 +92,10 @@ void runtime_data_update(Scope* used_scope);            // Апдейт runtime-
 void runtime_detect_peaks(Scope* used_scope);           // Обнаружение пиков
 
 // Обнаружение полуволн (внутри обнаружения пиков)
-void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type current_trend);
+void runtime_detect_halfwaves(Scope* used_scope, float current_value, float current_time, trend_type current_trend);
 
 // Helper-функция для zero-cross детектора / halfwaves детектора
-void halfwaves_detector_accumulation(Scope* used_scope);
+void halfwaves_detector_accumulation(Scope* used_scope, float current_value, float current_time);
 
 // Helper-функция для zero-cross детектора / halfwaves детектора
 void drop_zc_accumulation(Scope* used_scope);
@@ -663,7 +663,8 @@ void scope_wave_pattern_detector_clear(Scope* used_scope)
 void scope_screen_gui_clear(Scope* used_scope)
 {
     // Repeat init
-    scope_gui_init(used_scope);
+    
+    scope_gui_init(used_scope, used_scope->scope_render_data.renderer);
 }
 
 
@@ -1016,7 +1017,7 @@ void runtime_detect_peaks(Scope* used_scope)
     // 1.0σ → вероятно реальное отклонение
     // 2–3σ → почти точно событие
     
-    float sigma = sqrt(filter->running_sigma_squad;
+    float sigma = sqrt(filter->running_sigma_squad);
 
     // Статус zero-cross перерехода сигнала
     bool not_noise = ((deviation > 0.5 * sigma));
@@ -1045,12 +1046,12 @@ void runtime_detect_peaks(Scope* used_scope)
     if (not_noise)
     {
         // Helper-функция по детекции zero-cross и заполнению буффера
-        runtime_detect_halfwaves(used_scope, curr_x, curr_trend);
+        runtime_detect_halfwaves(used_scope, curr_x, curr_t, curr_trend);
     }
 }
 
 
-void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type current_trend)
+void runtime_detect_halfwaves(Scope* used_scope, float current_value, float current_time, trend_type current_trend)
 {
     wave_pattern_detector_former_ctx* wpdf_ctx = &used_scope->signal_control_data.wave_pattern_detector_former_data;
 
@@ -1153,6 +1154,9 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
             // При подобном ожидании полуволна автоматом - RISING
             wpdf_ctx->curr_halfwave.halfwave_type = RISING_PT;
 
+            // Передаём время начала полуволны
+            wpdf_ctx->curr_halfwave.start_time = current_time;
+
             
             // 1 случай - сигнал ниже treshold zone
             if (curr_signal_position == BELOW_ZC_TZ_SP)
@@ -1168,11 +1172,11 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
                         // Для того, чтобы отделить нормальный переход от того, который
                         // мог быть из-за шума в начале или конце зоны
                         // Делаем чек на "шумность" относительно нужного трешхолда
-                        if (!(current_value + noise_value >= noised_zc_mm))
+                        if (current_value <= noised_zc_mm)
                         {
                             // Мы перешли и прошли зону шума
                             // Пишем точку
-                            halfwaves_detector_accumulation(used_scope);
+                            halfwaves_detector_accumulation(used_scope, current_value, current_time);
 
                             // Меняем предыдущую на текущею при завершении прохода
                             *prev_signal_position = curr_signal_position;
@@ -1188,10 +1192,10 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
                     // В случае, если не был введен блок аккумуляции 
                     if (!wpdf_ctx->accumulation_block)
                     {
-                        if ((current_value + noise_value <= noised_zc_mm))
+                        if (current_value <= noised_zc_mm)
                         {
                             // Пишем точку
-                            halfwaves_detector_accumulation(used_scope);
+                            halfwaves_detector_accumulation(used_scope, current_value, current_time);
 
                             // Меняем предыдущую на текущею при завершении прохода
                             *prev_signal_position = curr_signal_position;
@@ -1200,13 +1204,12 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
                 }
             }
 
-    
             // Перешли в зону трешхолда - выставляем блок обновлений 
             // и ждём нарастающий сигнал
             else if (curr_signal_position == INSIDE_ZC_TZ_SP)
             {
                 // Выставляем блок при нормальном переходе с учетом шума
-                if (!(current_value + noise_value >= noised_zc_mp))
+                if (!(current_value >= noised_zc_mp))
                 {
                     // Ставим блок на аккумуляцию последующего прихода значений
                     // по последнему halfwaves_detector_accumulation имеем в памяти:
@@ -1233,7 +1236,7 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
             else if (curr_signal_position == ABOVE_ZC_TZ_SP)
             {
                 // Выставляем блок при нормальном переходе с учетом шума
-                if (!(current_value + noise_value >= noised_zc_pp))
+                if (!(current_value >= noised_zc_pp))
                 {
                     // Знаем обе крайние точки - это текущая и последняя записанная, как нормальная в:
                         
@@ -1267,10 +1270,12 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
             // в CASE 2 только ожидаем прохода над ABOVE_ZC_TZ_SP
             // репитим логику с CASE 1 для такого же прохода
 
+            // Нет смысла делать чек чего-то кроме выхода за верхнюю границу
+
             if (curr_signal_position == ABOVE_ZC_TZ_SP)
             {
                 // Выставляем блок при нормальном переходе с учетом шума
-                if (!(current_value + noise_value >= noised_zc_pp))
+                if (!(current_value >= noised_zc_pp))
                 {
                     // Знаем обе крайние точки - это текущая и последняя записанная, как нормальная в:
                         
@@ -1306,6 +1311,9 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
             // При подобном ожидании полуволна автоматом - FALLING
             wpdf_ctx->curr_halfwave.halfwave_type = FALLING_PT;
 
+            // Передаём время начала полуволны
+            wpdf_ctx->curr_halfwave.start_time = current_time;
+
             
             // 1 случай
             if (curr_signal_position == ABOVE_ZC_TZ_SP)
@@ -1321,11 +1329,11 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
                         // Для того, чтобы отделить нормальный переход от того, который
                         // мог быть из-за шума в начале или конце зоны
                         // Делаем чек на "шумность" относительно нужного трешхолда
-                        if (!(current_value + noise_value <= noised_zc_pm))
+                        if (current_value >= noised_zc_pp)
                         {
                             // Мы перешли и прошли зону шума
                             // Пишем точку
-                            halfwaves_detector_accumulation(used_scope);
+                            halfwaves_detector_accumulation(used_scope, current_value, current_time);
 
                             // Меняем предыдущую на текущею при завершении прохода
                             *prev_signal_position = curr_signal_position;
@@ -1341,10 +1349,10 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
                     // В случае, если не был введен блок аккумуляции 
                     if (!wpdf_ctx->accumulation_block)
                     {
-                        if ((current_value + noise_value >= noised_zc_pp))
+                        if (current_value >= noised_zc_pp)
                         {
                             // Пишем точку
-                            halfwaves_detector_accumulation(used_scope);
+                            halfwaves_detector_accumulation(used_scope, current_value, current_time);
 
                             // Меняем предыдущую на текущею при завершении прохода
                             *prev_signal_position = curr_signal_position;
@@ -1353,13 +1361,12 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
                 }
             }
 
-
             // 2 случай - Перешли в зону трешхолда - выставляем блок обновлений 
             // и ждём нарастающий сигнал
             else if (curr_signal_position == INSIDE_ZC_TZ_SP)
             {
                 // Выставляем блок при нормальном переходе с учетом шума
-                if (!(current_value - noise_value >= noised_zc_pm))
+                if (current_value <= noised_zc_pm)
                 {
                     // Ставим блок на аккумуляцию последующего прихода значений
                     // по последнему halfwaves_detector_accumulation имеем в памяти:
@@ -1386,7 +1393,7 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
             if (curr_signal_position == BELOW_ZC_TZ_SP)
             {
                 // Выставляем блок при нормальном переходе с учетом шума
-                if (!(current_value - noise_value >= noised_zc_pm))
+                if (current_value <= noised_zc_pm)
                 {
                     // Знаем обе крайние точки - это текущая и последняя записанная, как нормальная в:
                         
@@ -1405,6 +1412,7 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
                     // Меняем предыдущую позицию сигнала на текущею при завершении прохода
                     *prev_signal_position = curr_signal_position;
                 }
+            }
         
             break;
 
@@ -1424,7 +1432,7 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
             if (curr_signal_position == BELOW_ZC_TZ_SP)
             {
                 // Выставляем блок при нормальном переходе с учетом шума
-                if (!(current_value - noise_value >= noised_zc_pm))
+                if (current_value <= noised_zc_pm)
                 {
                     // Знаем обе крайние точки - это текущая и последняя записанная, как нормальная в:
                         
@@ -1455,13 +1463,66 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, trend_type
 
     // ===== State machine step =====
 
-
-
 }
 
-void halfwaves_detector_accumulation(Scope* used_scope)
+
+
+void halfwaves_detector_accumulation(Scope* used_scope, float current_value, float current_time)
 {
     // Accumulate by curr and prev
+    wave_pattern_detector_former_ctx* wpdf_ctx = &used_scope->signal_control_data.wave_pattern_detector_former_data;
+
+    wave_pattern_detector_ctx* wpd_ctx = &used_scope->signal_control_data.wave_pattern_detector_data;
+
+
+
+    float curr_x = current_value;
+    float prev_x = wpdf_ctx->prev_clean_signal_value;
+
+    float curr_time = current_time;
+    float prev_time = wpdf_ctx->prev_clean_signal_time;
+
+
+    // ===== Accumulation logic =====
+
+    // Area
+
+    wpdf_ctx->curr_halfwave.halfwave_area += curr_x;
+
+
+    // Velocity
+
+    float ds = curr_x - prev_x;
+    float dt = absf(curr_time - prev_time);
+
+    float velocity; 
+
+    
+    if (dt > 0.0f)
+    {
+        velocity = ds / dt;
+    }
+    else
+    {
+        velocity = 0.0f;
+    }
+
+    wpdf_ctx->curr_halfwave.halfwave_average_speed = (wpdf_ctx->curr_halfwave.halfwave_average_speed + velocity) / 2;
+
+    
+    // Peaks
+    
+    wpdf_ctx->curr_halfwave.peak_value = fmax(wpdf_ctx->curr_halfwave.peak_value, curr_x);
+
+    wpdf_ctx->curr_halfwave.trough_value = fmin(wpdf_ctx->curr_halfwave.trough_value, curr_x);
+
+
+    // Обновление чистых значений после последней аккумуляции, 
+    // чтобы при следующей аккумуляции использовать их
+    // для расчёта скорости и площади полуволны
+
+    wpdf_ctx->prev_clean_signal_value = curr_x;
+    wpdf_ctx->prev_clean_signal_time = curr_time;
 }
 
 
@@ -1469,7 +1530,26 @@ void drop_zc_accumulation(Scope* used_scope)
 {
     wave_pattern_detector_former_ctx* wpdf_ctx = &used_scope->signal_control_data.wave_pattern_detector_former_data;
 
+
+    // ===== Передача накопившихся данных =====
+
+    
+    wpdf_ctx->curr_halfwave.end_time = 0.0f;
+
+    wpdf_ctx->curr_halfwave.halfwave_full_time = 0.0f;
+
+
+
+
+
+
+
+
+
+
+
     // ===== Сброс аккумуляторов ===== 
+
     wpdf_ctx->point_1_time = 0.0f;
     wpdf_ctx->point_2_time = 0.0f;
 
@@ -1479,11 +1559,6 @@ void drop_zc_accumulation(Scope* used_scope)
     wpdf_ctx->prev_clean_signal_value = 0.0f;
     wpdf_ctx->prev_clean_signal_time = 0.0f;
 
-    // Средняя скорость текущей полуволны
-    wpdf_ctx->average_halfwave_velocity = 0.0f;
-
-    // Площадь текущей полуволны
-    wpdf_ctx->halfwave_area = 0.0f; 
 
     // ===== Сброс аккумуляторов =====
 
