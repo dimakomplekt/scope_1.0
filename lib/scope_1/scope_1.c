@@ -1484,7 +1484,7 @@ void halfwaves_detector_accumulation(Scope* used_scope, float current_value, flo
 
     // Velocity
 
-    float ds = curr_x - prev_x;
+    float ds = absf(curr_x - prev_x);
     float dt = absf(curr_time - prev_time);
 
     float velocity; 
@@ -1499,6 +1499,8 @@ void halfwaves_detector_accumulation(Scope* used_scope, float current_value, flo
         velocity = 0.0f;
     }
 
+    // Собираю просто среднее значение без направления
+    // TODO: узнать, насколько требуется знак (мне кажется, что не нужен)
     wpdf_ctx->curr_halfwave.halfwave_average_speed = (wpdf_ctx->curr_halfwave.halfwave_average_speed + velocity) / 2;
 
     
@@ -1727,7 +1729,6 @@ void add_halfwave_in_buffer(Scope* used_scope, halfwave_data_ctx new_halfwave)
     // ===== Заполнение буффера =====
 
     int head = buffer->head;
-
 
 
     buffer->halfwaves_for_detection[head] = new_halfwave;
