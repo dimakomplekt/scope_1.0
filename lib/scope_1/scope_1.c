@@ -98,7 +98,10 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, float curr
 void halfwaves_detector_accumulation(Scope* used_scope, float current_value, float current_time);
 
 // Helper-функция для zero-cross детектора / halfwaves детектора
-void drop_zc_accumulation(Scope* used_scope);
+void drop_zc_accumulation(Scope* used_scope, float current_value, float current_time);
+
+// Helper-функция для заполнения буффера полуволн
+void add_halfwave_in_buffer(Scope* used_scope, halfwave_data_ctx new_halfwave);
 
 
 // scope_slow_update() часть анализа
@@ -448,29 +451,19 @@ void scope_wave_pattern_detector_former_init(Scope* used_scope)
     wpdf_ctx->curr_halfwave.halfwave_average_speed = 0.0f;
 
 
-    wpdf_ctx->point_1_time = 0.0f;
-    wpdf_ctx->point_2_time = 0.0f;
-
     wpdf_ctx->halfwave_zero_crosses[0].zero_cross_type = STATIC_PT;
     wpdf_ctx->halfwave_zero_crosses[0].time = 0.0f;
+    wpdf_ctx->halfwave_zero_crosses[0].filled = false;
 
     wpdf_ctx->halfwave_zero_crosses[1].zero_cross_type = STATIC_PT;
     wpdf_ctx->halfwave_zero_crosses[1].time = 0.0f;
+    wpdf_ctx->halfwave_zero_crosses[1].filled = false;
 
     // Первично доступ открыт
     wpdf_ctx->accumulation_block = false;
 
-    // Инкрементальный счётчик количества измерений сигнала в текущей полуволне
-    wpdf_ctx->halfwave_parts_counter = 0;
-
     wpdf_ctx->prev_clean_signal_value = 0.0f;
     wpdf_ctx->prev_clean_signal_time = 0.0f;
-
-    // Средняя скорость текущей полуволны
-    wpdf_ctx->average_halfwave_velocity = 0.0f;
-
-    // Площадь текущей полуволны
-    wpdf_ctx->halfwave_area = 0.0f;  
 }
 
 
@@ -482,7 +475,7 @@ void scope_wave_pattern_detector_init(Scope* used_scope)
     wpd_ctx->count = 0;
 
 
-    for (int i = 0; i == 64; i++)
+    for (int i = 0; i == PERIOD_DETECTOR_BUFFER_SIZE; i++)
     {
         wpd_ctx->halfwaves_for_detection[i].halfwave_type = STATIC_PT;
         wpd_ctx->halfwaves_for_detection[i].start_time = 0.0f;
@@ -1154,8 +1147,6 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, float curr
             // При подобном ожидании полуволна автоматом - RISING
             wpdf_ctx->curr_halfwave.halfwave_type = RISING_PT;
 
-            // Передаём время начала полуволны
-            wpdf_ctx->curr_halfwave.start_time = current_time;
 
             
             // 1 случай - сигнал ниже treshold zone
@@ -1244,7 +1235,8 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, float curr
                         // float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
 
                     // Производим дроп значений с отправкой текущей даты по полуволне
-                    drop_zc_accumulation(used_scope);
+                    drop_zc_accumulation(used_scope, current_value, current_time);
+
 
                     // Снимаем блок на аккумуляцию последующего прихода значений
                     wpdf_ctx->accumulation_block = false;
@@ -1283,7 +1275,8 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, float curr
                         // float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
 
                     // Производим дроп значений с отправкой текущей даты по полуволне
-                    drop_zc_accumulation(used_scope);
+                    drop_zc_accumulation(used_scope, current_value, current_time);
+
 
                     // Снимаем блок на аккумуляцию последующего прихода значений
                     wpdf_ctx->accumulation_block = false;
@@ -1310,10 +1303,6 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, float curr
 
             // При подобном ожидании полуволна автоматом - FALLING
             wpdf_ctx->curr_halfwave.halfwave_type = FALLING_PT;
-
-            // Передаём время начала полуволны
-            wpdf_ctx->curr_halfwave.start_time = current_time;
-
             
             // 1 случай
             if (curr_signal_position == ABOVE_ZC_TZ_SP)
@@ -1401,7 +1390,8 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, float curr
                         // float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
 
                     // Производим дроп значений с отправкой текущей даты по полуволне
-                    drop_zc_accumulation(used_scope);
+                    drop_zc_accumulation(used_scope, current_value, current_time);
+
 
                     // Снимаем блок на аккумуляцию последующего прихода значений
                     wpdf_ctx->accumulation_block = false;
@@ -1440,7 +1430,8 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, float curr
                         // float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
 
                     // Производим дроп значений с отправкой текущей даты по полуволне
-                    drop_zc_accumulation(used_scope);
+                    drop_zc_accumulation(used_scope, current_value, current_time);
+
 
                     // Снимаем блок на аккумуляцию последующего прихода значений
                     wpdf_ctx->accumulation_block = false;
@@ -1526,58 +1517,192 @@ void halfwaves_detector_accumulation(Scope* used_scope, float current_value, flo
 }
 
 
-void drop_zc_accumulation(Scope* used_scope)
+// Helper-states for drop_zc_accumulation
+typedef enum zero_cross_fill_status
+{
+    
+    TWO_ZC_EMPTY,       // Только в случае инициализации
+    FIRST_ZC_FILLED,    // Первый переход
+    SECOND_ZC_FILLED    // Второй переход - в конце сдвигается и становится первым
+
+} zero_cross_fill_status;
+
+
+void drop_zc_accumulation(Scope* used_scope, float current_value, float current_time)
 {
     wave_pattern_detector_former_ctx* wpdf_ctx = &used_scope->signal_control_data.wave_pattern_detector_former_data;
-
-
-    // ===== Передача накопившихся данных =====
-
     
-    wpdf_ctx->curr_halfwave.end_time = 0.0f;
-
-    wpdf_ctx->curr_halfwave.halfwave_full_time = 0.0f;
+    halfwave_data_ctx* curr_halfwave = &wpdf_ctx->curr_halfwave;
 
 
+    // ===== Чек статуса для выбора логики дропа значений =====
+
+    zero_cross_fill_status curr_zc_status;
+
+    if (!wpdf_ctx->halfwave_zero_crosses[0].filled) 
+        curr_zc_status = TWO_ZC_EMPTY;
+
+    else if (wpdf_ctx->halfwave_zero_crosses[0].filled && !wpdf_ctx->halfwave_zero_crosses[1].filled ) 
+        curr_zc_status = FIRST_ZC_FILLED;
+
+    // При текущей архитектуре в данной зоне нет нужды производить чек на SECOND_HALFWAVE_FILLED status
+
+    // ===== Чек статуса для выбора логики дропа значений =====
+
+
+    // ===== Заполнения zero-cross и дроп аккумуляции =====
+
+    float curr_x = current_value;
+    float prev_x = wpdf_ctx->prev_clean_signal_value;
+
+    float curr_time = current_time;
+    float prev_time = wpdf_ctx->prev_clean_signal_time;
+
+
+    trend_type curr_trend = curr_halfwave->halfwave_type;
 
 
 
+    if (curr_zc_status == TWO_ZC_EMPTY)
+    {
+        // Заполняем данные о первом zero-cross после инициализации
+
+        // Чекаем предыдущие чистые значения и ищем среднее арифметическое с переданными current
+
+
+        wpdf_ctx->halfwave_zero_crosses[0].zero_cross_type = curr_trend;
+        wpdf_ctx->halfwave_zero_crosses[0].time = (curr_time + prev_time) * 0.5f;
+        wpdf_ctx->halfwave_zero_crosses[0].filled = true;
+
+        // Простой дроп данных полуволны без передачи - текущая полуволна была, как своеобразный "затакт"
+        // и мы всегда будем работать с волнами, которые FALLING -> RISING, вроде таких:
+
+        /*
+            Типовая волна с которой мы работаем:
+
+                 _ _ _
+                |     |  Falling
+                |     |
+            ____|_____|_________
+                      |     |
+                      |     |  Rising
+                      |_ _ _|
+                    
+        */
+
+        
+        // Записываем время старта текущей волны
+        curr_halfwave->start_time = wpdf_ctx->halfwave_zero_crosses[0].time;
+
+        // Дроп всего отсального под следующую полуволну:
+
+        curr_halfwave->halfwave_type = STATIC_PT;
+
+        curr_halfwave->end_time = 0.0f;
+        curr_halfwave->halfwave_full_time = 0.0f;
+        curr_halfwave->peak_value = -FLT_MAX;
+        curr_halfwave->trough_value = FLT_MAX;
+        curr_halfwave->halfwave_area = 0.0f;
+        curr_halfwave->halfwave_average_speed = 0.0f;
+
+    }
+
+
+    if (curr_zc_status == FIRST_ZC_FILLED)
+    {
+        // Тут запишется end time
+        wpdf_ctx->halfwave_zero_crosses[1].time = (curr_time + prev_time) * 0.5f;
+        curr_halfwave->end_time = wpdf_ctx->halfwave_zero_crosses[1].time;
+    }
+
+
+    // ===== Заполнения zero-cross и дроп аккумуляции =====
+
+
+    // ===== Передача накопившихся о полуволне в случае заполнения 2 zero-cross =====
+
+    if (wpdf_ctx->halfwave_zero_crosses[0].filled && wpdf_ctx->halfwave_zero_crosses[1].filled)
+        curr_zc_status = FIRST_ZC_FILLED;
+
+    // Выход если не заполнены оба zero-cross
+    else return;    
+
+
+    // Обработка при заполнении всех zero-cross
+    if (curr_zc_status == SECOND_ZC_FILLED)
+    {
+        // ===== Заполнение данных о полуволне и отправка в детектор ===== 
+
+        // Заполняем данные о времени концовки полуволны
+
+        curr_halfwave->halfwave_full_time = curr_halfwave->end_time - curr_halfwave->start_time;
+
+
+        // Сдвигаем второй zero-cross в первый, чтобы освободить место для следующего
+
+
+        // Передача текущей полуволны в буффер полуволн со сдвигом буффера
+
+        add_halfwave_in_buffer(used_scope, wpdf_ctx->curr_halfwave);
+
+
+        // Полуволна передана - производим очистку аккумуляторов 
+
+        // ===== Сброс аккумуляторов полуволны ===== 
+
+        // Передача времени окончания прошлой как времени старта текущей
+        curr_halfwave->start_time = curr_halfwave->end_time;
+
+        // Дроп всего остального
+        curr_halfwave->halfwave_type = STATIC_PT;
+        curr_halfwave->end_time = 0.0f;
+        curr_halfwave->halfwave_full_time = 0.0f;
+        curr_halfwave->peak_value = -FLT_MAX;
+        curr_halfwave->trough_value = FLT_MAX;
+        curr_halfwave->halfwave_area = 0.0f;
+        curr_halfwave->halfwave_average_speed = 0.0f;
+
+
+        // ===== Сброс аккумуляторов zero_cross ===== 
+
+        // Сдвиг 2 в 1
+
+        wpdf_ctx->halfwave_zero_crosses[0].zero_cross_type = wpdf_ctx->halfwave_zero_crosses[1].zero_cross_type;
+        wpdf_ctx->halfwave_zero_crosses[0].time = wpdf_ctx->halfwave_zero_crosses[1].time;
+        wpdf_ctx->halfwave_zero_crosses[0].filled = wpdf_ctx->halfwave_zero_crosses[1].filled;
+
+        // Очистка 2 под запись нового (выставится FIRST_ZC_FILLED)
+        wpdf_ctx->halfwave_zero_crosses[1].zero_cross_type = STATIC_PT;
+        wpdf_ctx->halfwave_zero_crosses[1].time = 0.0f;
+        wpdf_ctx->halfwave_zero_crosses[1].filled = false;
+
+    }
+
+    // ===== Конечный сдвиг аккумуляторов при любом заходе в этот блок ===== 
+
+    wpdf_ctx->prev_clean_signal_value = current_value;
+    wpdf_ctx->prev_clean_signal_time = current_time;
+
+}
+
+
+void add_halfwave_in_buffer(Scope* used_scope, halfwave_data_ctx new_halfwave)
+{
+    wave_pattern_detector_ctx* buffer = &used_scope->signal_control_data.wave_pattern_detector_data;
+
+    // ===== Заполнение буффера =====
+
+    int head = buffer->head;
 
 
 
+    buffer->halfwaves_for_detection[head] = new_halfwave;
 
 
+    // update ring buffer c защитой от кольцевых переходов
+    buffer->head = (head + 1) % PERIOD_DETECTOR_BUFFER_SIZE;
 
-    // ===== Сброс аккумуляторов ===== 
-
-    wpdf_ctx->point_1_time = 0.0f;
-    wpdf_ctx->point_2_time = 0.0f;
-
-    // Инкрементальный счётчик количества измерений сигнала в текущей полуволне
-    wpdf_ctx->halfwave_parts_counter = 0;
-
-    wpdf_ctx->prev_clean_signal_value = 0.0f;
-    wpdf_ctx->prev_clean_signal_time = 0.0f;
-
-
-    // ===== Сброс аккумуляторов =====
-
-
-    // ===== Сброс контекста под передачу в один из cleaned_zero_cross halfwave_zero_crosses[2] =====
-
-    wpdf_ctx->curr_halfwave.halfwave_type = STATIC_PT;
-    wpdf_ctx->curr_halfwave.start_time = 0.0f;
-    wpdf_ctx->curr_halfwave.end_time = 0.0f;
-
-    wpdf_ctx->curr_halfwave.halfwave_full_time = 0.0f;
-
-    wpdf_ctx->curr_halfwave.peak_value = -FLT_MAX;
-    wpdf_ctx->curr_halfwave.trough_value = FLT_MAX;
-    wpdf_ctx->curr_halfwave.halfwave_area = 0.0f;
-    wpdf_ctx->curr_halfwave.halfwave_average_speed = 0.0f;
-
-    // ===== Сброс контекста под передачу в один из cleaned_zero_cross halfwave_zero_crosses[2] =====
-
+    if (buffer->count < PERIOD_DETECTOR_BUFFER_SIZE) buffer->count++;
 }
 
 
@@ -2678,6 +2803,8 @@ void scope_gui_renew(Scope* used_scope)
     // Init значение текста - поменяется сразу при обновлении буфера
     Textbox_set_content(&used_scope->scope_render_data.frequency_or_period_textbox, "FREQUENCY");
 }
+
+
 
 
 void scope_screens_gui_renew_by_signal_data(Scope* used_scope)

@@ -29,9 +29,9 @@
 #define MAX_DISPLAY_WIDTH                   2000
 #define SCOPE_SCREEN_OVERSAMPLING           4
 
-#define MAX_ZERO_CROSSINGS_TO_CHECK         64
 
 #define BUFFER_SIZE                         (SCOPE_SAMPLE_RATE * MIN_CONTROLLED_PERIOD * SCOPE_BUFFER_STOCK)
+#define PERIOD_DETECTOR_BUFFER_SIZE         64
 #define RENDER_POINTS_BUFFER_SIZE           (MAX_DISPLAY_WIDTH * SCOPE_SCREEN_OVERSAMPLING)
 
 #define FREQ_TO_SEPARATE_MODES_LB           230
@@ -317,6 +317,8 @@ typedef struct cleaned_zero_cross
 
     double time;                        // Время прохода
 
+    bool filled;                        // Статус заполнения
+
 } cleaned_zero_cross;
 
 
@@ -381,9 +383,6 @@ typedef struct wave_pattern_detector_former_ctx
     // оправданы, то записывается point_2_time для текущего перехода, по point_1_time и point_2_time, как  
     // 0.5 (point_1_time + point_2_time) обновляется halfwave_zero_crosses[n] (в зависимости от типа перехода n = 0 или 1)
 
-    double point_1_time;     // Время 1 перехода через ожидаемый dc_offset +- trashold
-    double point_2_time;     // Время 2 перехода через ожидаемый dc_offset +- trashold
-
 
     cleaned_zero_cross halfwave_zero_crosses[2];        // Две заполняемые точки полуволны
 
@@ -438,12 +437,6 @@ typedef struct wave_pattern_detector_former_ctx
     // accumulation_block в true, что управляет логикой аккумуляции данных о полуволне 
     bool accumulation_block;
 
-    // Сигналы с низким доверием не участвуют в расчётах 
-    // Инкрементальный счётчик количества измерений сигнала в текущей полуволне
-    // Используется для поиска средней скорости
-    int halfwave_parts_counter;
-
-
     // Для фиксации последней чистой точки
 
     float prev_clean_signal_value;          // Значение предыдущего сигнала с допустимым доверием
@@ -456,7 +449,7 @@ typedef struct wave_pattern_detector_former_ctx
 // Используется в анализаторе паттернов и непосредственно при расчёте периода 
 typedef struct wave_pattern_detector_ctx 
 {
-    halfwave_data_ctx halfwaves_for_detection[64];
+    halfwave_data_ctx halfwaves_for_detection[PERIOD_DETECTOR_BUFFER_SIZE];
 
     int head;
     int count;
