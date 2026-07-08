@@ -1035,8 +1035,9 @@ void runtime_detect_peaks(Scope* used_scope)
     // Промежуточным итогом работы данной секции является поступление в 
     // Итогом работы данной секции является поступление в wave_pattern_detector_ctx 
 
-    // Если текущее значение не шум - производим действия
-    if (not_noise)
+    // Если текущее значение не шум и у нас есть достаточно данных для начала анализа - производим действия
+    // TODO: нужно ли ограничение buffer->count > 1024???
+    if (not_noise && buffer->count > 1024)
     {
         // Helper-функция по детекции zero-cross и заполнению буффера
         runtime_detect_halfwaves(used_scope, curr_x, curr_t, curr_trend);
@@ -1591,13 +1592,11 @@ void drop_zc_accumulation(Scope* used_scope, float current_value, float current_
         */
 
         
-        // Записываем время старта текущей волны
-        curr_halfwave->start_time = wpdf_ctx->halfwave_zero_crosses[0].time;
 
-        // Дроп всего отсального под следующую полуволну:
+        // Дроп всего (кроме curr_halfwave->halfwave_type - контролируется лишь извне) под 1 полуволну:
+        // TODO: Надо ли с учетом INIT?
 
-        curr_halfwave->halfwave_type = STATIC_PT;
-
+        curr_halfwave->start_time = 0.0f;
         curr_halfwave->end_time = 0.0f;
         curr_halfwave->halfwave_full_time = 0.0f;
         curr_halfwave->peak_value = -FLT_MAX;
@@ -1610,9 +1609,34 @@ void drop_zc_accumulation(Scope* used_scope, float current_value, float current_
 
     if (curr_zc_status == FIRST_ZC_FILLED)
     {
-        // Тут запишется end time
+        // Чекаем предыдущие чистые значения и ищем среднее арифметическое с переданными current
+
+        wpdf_ctx->halfwave_zero_crosses[1].zero_cross_type = curr_trend;
         wpdf_ctx->halfwave_zero_crosses[1].time = (curr_time + prev_time) * 0.5f;
+        wpdf_ctx->halfwave_zero_crosses[1].filled = true;
+
+
+        curr_halfwave->start_time = wpdf_ctx->halfwave_zero_crosses[0].time;
         curr_halfwave->end_time = wpdf_ctx->halfwave_zero_crosses[1].time;
+
+        // Разность с защитой от переполнения для нахождения времени полуволны
+        if (!isnan(curr_halfwave->end_time) && !isnan(curr_halfwave->start_time)) 
+        {
+    
+            // 2. Безопасное вычисление разности
+            float diff = curr_halfwave->end_time - curr_halfwave->start_time;
+            
+            // 3. Проверка на бесконечность
+            if (isinf(diff)) 
+            {
+                // Обработка ошибки: значение слишком велико
+                curr_halfwave->halfwave_full_time = (diff > 0) ? FLT_MAX : -FLT_MAX;
+            } 
+            else 
+            {
+                curr_halfwave->halfwave_full_time = diff;
+            }
+        }
     }
 
 
@@ -1622,26 +1646,35 @@ void drop_zc_accumulation(Scope* used_scope, float current_value, float current_
     // ===== Передача накопившихся о полуволне в случае заполнения 2 zero-cross =====
 
     if (wpdf_ctx->halfwave_zero_crosses[0].filled && wpdf_ctx->halfwave_zero_crosses[1].filled)
-        curr_zc_status = FIRST_ZC_FILLED;
+        curr_zc_status = SECOND_ZC_FILLED;
 
     // Выход если не заполнены оба zero-cross
-    else return;    
+    else 
+    {
+        // ===== Конечный сдвиг аккумуляторов при любом заходе в этот блок ===== 
+
+        wpdf_ctx->prev_clean_signal_value = current_value;
+        wpdf_ctx->prev_clean_signal_time = current_time;
+
+        return;
+    }
 
 
     // Обработка при заполнении всех zero-cross
     if (curr_zc_status == SECOND_ZC_FILLED)
     {
-        // ===== Заполнение данных о полуволне и отправка в детектор ===== 
-
-        // Заполняем данные о времени концовки полуволны
-
-        curr_halfwave->halfwave_full_time = curr_halfwave->end_time - curr_halfwave->start_time;
-
-
-        // Сдвигаем второй zero-cross в первый, чтобы освободить место для следующего
-
 
         // Передача текущей полуволны в буффер полуволн со сдвигом буффера
+        // при помощи helper-функции.
+        //
+        // При вызове этой функции мы имеем полностью заполненный контекст
+        // полуволны с вычисленными на стадии аккумуляции значений:
+        //
+        //    curr_halfwave->peak_value
+        //    curr_halfwave->trough_value
+        //    curr_halfwave->halfwave_area
+        //    curr_halfwave->halfwave_average_speed
+
 
         add_halfwave_in_buffer(used_scope, wpdf_ctx->curr_halfwave);
 
@@ -1654,8 +1687,8 @@ void drop_zc_accumulation(Scope* used_scope, float current_value, float current_
         curr_halfwave->start_time = curr_halfwave->end_time;
 
         // Дроп всего остального
-        curr_halfwave->halfwave_type = STATIC_PT;
-        curr_halfwave->end_time = 0.0f;
+
+        curr_halfwave->end_time = curr_halfwave->end_time;  // Стал "относительным нулём"
         curr_halfwave->halfwave_full_time = 0.0f;
         curr_halfwave->peak_value = -FLT_MAX;
         curr_halfwave->trough_value = FLT_MAX;
@@ -1665,24 +1698,25 @@ void drop_zc_accumulation(Scope* used_scope, float current_value, float current_
 
         // ===== Сброс аккумуляторов zero_cross ===== 
 
-        // Сдвиг 2 в 1
+        // Сдвигаем второй zero-cross в первый, чтобы освободить место для следующего
 
         wpdf_ctx->halfwave_zero_crosses[0].zero_cross_type = wpdf_ctx->halfwave_zero_crosses[1].zero_cross_type;
         wpdf_ctx->halfwave_zero_crosses[0].time = wpdf_ctx->halfwave_zero_crosses[1].time;
-        wpdf_ctx->halfwave_zero_crosses[0].filled = wpdf_ctx->halfwave_zero_crosses[1].filled;
+        wpdf_ctx->halfwave_zero_crosses[0].filled = true;
 
-        // Очистка 2 под запись нового (выставится FIRST_ZC_FILLED)
+        // Очистка 2 под запись нового (т.к. filled == false, то на следующем вызове
+        // выставится FIRST_ZC_FILLED и циклично пойдет дальнейшая запись полуволн в буффер)
         wpdf_ctx->halfwave_zero_crosses[1].zero_cross_type = STATIC_PT;
         wpdf_ctx->halfwave_zero_crosses[1].time = 0.0f;
         wpdf_ctx->halfwave_zero_crosses[1].filled = false;
 
+
+        // ===== Конечный сдвиг аккумуляторов при любом заходе в этот блок ===== 
+
+        // Данная точка перехода теперь будет являться последней "чистой точкой"
+        wpdf_ctx->prev_clean_signal_value = current_value;
+        wpdf_ctx->prev_clean_signal_time = current_time;
     }
-
-    // ===== Конечный сдвиг аккумуляторов при любом заходе в этот блок ===== 
-
-    wpdf_ctx->prev_clean_signal_value = current_value;
-    wpdf_ctx->prev_clean_signal_time = current_time;
-
 }
 
 
