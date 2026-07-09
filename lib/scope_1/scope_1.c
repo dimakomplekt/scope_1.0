@@ -898,8 +898,13 @@ void runtime_detect_peaks(Scope* used_scope)
 
     // Current trend
 
-    if (curr_x == prev_x) curr_trend = STATIC_PT;
-    else if (curr_x > prev_x) curr_trend = RISING_PT;
+    float sigma = sqrt(filter->running_sigma_squad);
+
+    float dx = curr_x - prev_x;
+    float trend_eps = 0.05f * sigma;
+
+    if ((fabsf(dx) < trend_eps)) curr_trend = STATIC_PT;
+    else if (dx > 0.0f) curr_trend = RISING_PT;
     else curr_trend = FALLING_PT;
 
 
@@ -928,13 +933,34 @@ void runtime_detect_peaks(Scope* used_scope)
     // Если хаос / шум => он разрушается
 
     if (trend_continuation_status) peaks_data->trend_confidence += 1.0f;
-    
-    // if (curr_trend == STATIC_PT) peaks_data->trend_confidence -= 0.0f;
+    else peaks_data->trend_confidence -= 1.0f;
 
-    if (!trend_continuation_status) peaks_data->trend_confidence -= 1.0f;
+
+    // Защита от завалов уверенности
+    if (peaks_data->trend_confidence >= 100.0f) peaks_data->trend_confidence = 100.0f;
+    else if (peaks_data->trend_confidence <= 0.0f) peaks_data->trend_confidence = 0.0f;
 
 
     // ===== Чек пиков и ям, установка минимумов и максимумов =====
+
+    /*
+
+        Пик №1 найден
+                │
+                ▼
+        peak_candidate = пик №1
+
+        Пик №2 найден
+                │
+                ▼
+        last_peak = пик №1
+        peak_candidate = пик №2
+
+                │
+                ▼
+        current_max = max(пик №1, пик №2)
+    
+    */
 
     // Новое значение - новый пик
     if (peak_trend_status)
@@ -942,17 +968,19 @@ void runtime_detect_peaks(Scope* used_scope)
         // Прошлый кандидат становится пиком
         peaks_data->last_peak = peaks_data->peak_candidate;
 
-        // Текущий пик становится кандидатом
-        peaks_data->peak_candidate = curr_x; 
+        // Прошлый пик становится кандидатом
+        peaks_data->peak_candidate = prev_x; 
 
-        // ??? Может сломать всё ???
+        // Запоминаем устойчивость тренда
+        // в момент фиксации экстремума.
         peaks_data->last_event_confidence = peaks_data->trend_confidence;
-
 
         // ===== Чек максимума =====
 
         float current_max = peaks_data->last_peak > peaks_data->peak_candidate ? peaks_data->last_peak : peaks_data->peak_candidate;
 
+        // Обновляем running_max только если
+        // новый максимум получен при более устойчивом тренде.
         bool curr_max_confidence_status = (peaks_data->max_confidence < peaks_data->trend_confidence); 
 
         if ((current_max > peaks_data->max_candidate) && curr_max_confidence_status)
@@ -971,16 +999,24 @@ void runtime_detect_peaks(Scope* used_scope)
     else if (trough_trend_status)
     {
         peaks_data->last_trough = peaks_data->trough_candidate;
-        peaks_data->trough_candidate = curr_x; 
+        peaks_data->trough_candidate = prev_x; 
 
-        // ??? Может сломать всё ???
+        // Запоминаем устойчивость тренда
+        // в момент фиксации экстремума.
         peaks_data->last_event_confidence = peaks_data->trend_confidence;
 
 
         // ===== Чек минимума =====
 
-        float current_min = peaks_data->last_trough < peaks_data->peak_candidate ? peaks_data->last_trough : peaks_data->peak_candidate;
+        float current_min = 
 
+            peaks_data->last_trough < peaks_data->trough_candidate ?
+            peaks_data->last_trough :
+            peaks_data->trough_candidate;
+
+
+        // Обновляем running_min только если
+        // новый минимум получен при более устойчивом тренде.
         bool curr_min_confidence_status = (peaks_data->min_confidence < peaks_data->trend_confidence); 
 
         if ((current_min < peaks_data->min_candidate) && curr_min_confidence_status)
@@ -1009,8 +1045,7 @@ void runtime_detect_peaks(Scope* used_scope)
     // 0.5σ → слабый сигнал, но уже интересный
     // 1.0σ → вероятно реальное отклонение
     // 2–3σ → почти точно событие
-    
-    float sigma = sqrt(filter->running_sigma_squad);
+
 
     // Статус zero-cross перерехода сигнала
     bool not_noise = ((deviation > 0.5 * sigma));
@@ -1033,11 +1068,11 @@ void runtime_detect_peaks(Scope* used_scope)
     // включались только полезные значения.
     //
     // Промежуточным итогом работы данной секции является поступление в 
-    // Итогом работы данной секции является поступление в wave_pattern_detector_ctx 
+    // в wave_pattern_detector_ctx готовой полуволны
 
     // Если текущее значение не шум и у нас есть достаточно данных для начала анализа - производим действия
     // TODO: нужно ли ограничение buffer->count > 1024???
-    if (not_noise && buffer->count > 1024)
+    if (not_noise && buffer->count > FILTER_WARMUP_SAMPLES)
     {
         // Helper-функция по детекции zero-cross и заполнению буффера
         runtime_detect_halfwaves(used_scope, curr_x, curr_t, curr_trend);

@@ -24,6 +24,8 @@
 #define MIN_CONTROLLED_PERIOD               2
 #define SCOPE_BUFFER_STOCK                  4
 
+#define FILTER_WARMUP_SAMPLES               1024
+
 // VIEW LVL
 #define MAX_CONTROLLED_FREQ                 20000
 #define MAX_DISPLAY_WIDTH                   2000
@@ -283,7 +285,7 @@ typedef struct scope_realtime_peaks_ctx {
     
     trend_type prev_trend;              // Предыдущий тренд сигнала
 
-    float trend_confidence;
+    float trend_confidence;             // Интегральная мера устойчивости локального тренда.
     
     float last_event_confidence;
 
