@@ -1588,7 +1588,7 @@ Halfwave-детектор
             float trough_value;                         // Минимум (по главному буфферу от head - до head.halfwave_full_time)
             
             float halfwave_area;                        // Примерная площадь этой полуволны (по главному буфферу от head - до head.halfwave_full_time)
-            float halfwave_average_speed;               // Примерная средняя скорость изменения значений в этой полуволне (по главному буфферу от head - до head.halfwave_full_time)
+            float halfwave_smoothed_speed;               // Примерная средняя скорость изменения значений в этой полуволне (по главному буфферу от head - до head.halfwave_full_time)
 
         } halfwave_data_ctx;
             
@@ -1663,7 +1663,7 @@ Halfwave-детектор
                 // На этом же шаге по текущему head основного буффера и значению halfwave_full_time производится рассчёт:
 
                 // float halfwave_area;                        // Примерной площади этой полуволны
-                // float halfwave_average_speed;               // Примерной средняя скорость изменения значений в этой полуволне
+                // float halfwave_smoothed_speed;               // Примерной средняя скорость изменения значений в этой полуволне
 
 
                 // На этом же шаге по текущему head кольцевого zero_cross_detector буффера производится запись проанализированной полуволны в halfwaves_for_detection
@@ -1786,7 +1786,7 @@ typedef struct halfwave_data_ctx
     float trough_value;
 
     float halfwave_area;
-    float halfwave_average_speed;
+    float halfwave_smoothed_speed;
 
 } halfwave_data_ctx;
 
@@ -1857,7 +1857,7 @@ float wave_distance(const halfwave_data_ctx* a,
     d += fabsf(a->peak_value - b->peak_value);
     d += fabsf(a->trough_value - b->trough_value);
     d += fabsf(a->halfwave_area - b->halfwave_area);
-    d += fabsf(a->halfwave_average_speed - b->halfwave_average_speed);
+    d += fabsf(a->halfwave_smoothed_speed - b->halfwave_smoothed_speed);
 
     return d;
 }
@@ -2164,7 +2164,7 @@ int validate_period_repeats_fast(
             d += fabsf(a->peak_value - b->peak_value);
             d += fabsf(a->trough_value - b->trough_value);
             d += fabsf(a->halfwave_area - b->halfwave_area);
-            d += fabsf(a->halfwave_average_speed - b->halfwave_average_speed);
+            d += fabsf(a->halfwave_smoothed_speed - b->halfwave_smoothed_speed);
 
             err += d;
         }

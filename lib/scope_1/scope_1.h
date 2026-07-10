@@ -344,8 +344,10 @@ typedef struct halfwave_data_ctx
     float peak_value;                    // Максимум (по главному буфферу от head - до head.halfwave_full_time)
     float trough_value;                  // Минимум (по главному буфферу от head - до head.halfwave_full_time)
     
-    float halfwave_area;                 // Примерная площадь этой полуволны (по главному буфферу от head - до head.halfwave_full_time)
-    float halfwave_average_speed;        // Примерная средняя скорость изменения значений в этой полуволне (по главному буфферу от head - до head.halfwave_full_time)
+    // Площадь - с пренебрежением разницы по dx (по главному буфферу от head - до head.halfwave_full_time)
+    float halfwave_area;                 // Примерная площадь этой полуволны
+
+    float halfwave_smoothed_speed;       // Примерная средняя скорость изменения значений в этой полуволне (просто EMA)
 
 } halfwave_data_ctx;
 
@@ -409,7 +411,7 @@ typedef struct wave_pattern_detector_former_ctx
         // На этом же шаге по текущему head основного буффера и значению halfwave_full_time производится рассчёт:
 
         // float halfwave_area;                        // Примерной площади этой полуволны
-        // float halfwave_average_speed;               // Примерной средняя скорость изменения значений в этой полуволне
+        // float halfwave_smoothed_speed;               // Примерной средняя скорость изменения значений в этой полуволне
 
 
         // На этом же шаге по текущему head кольцевого zero_cross_detector буффера производится запись проанализированной полуволны в halfwaves_for_detection

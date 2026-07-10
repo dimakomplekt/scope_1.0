@@ -448,7 +448,7 @@ void scope_wave_pattern_detector_former_init(Scope* used_scope)
     wpdf_ctx->curr_halfwave.peak_value = -FLT_MAX;
     wpdf_ctx->curr_halfwave.trough_value = FLT_MAX;
     wpdf_ctx->curr_halfwave.halfwave_area = 0.0f;
-    wpdf_ctx->curr_halfwave.halfwave_average_speed = 0.0f;
+    wpdf_ctx->curr_halfwave.halfwave_smoothed_speed = 0.0f;
 
 
     wpdf_ctx->halfwave_zero_crosses[0].zero_cross_type = STATIC_PT;
@@ -486,7 +486,7 @@ void scope_wave_pattern_detector_init(Scope* used_scope)
         wpd_ctx->halfwaves_for_detection[i].peak_value = -FLT_MAX;
         wpd_ctx->halfwaves_for_detection[i].trough_value = FLT_MAX;
         wpd_ctx->halfwaves_for_detection[i].halfwave_area = 0.0f;
-        wpd_ctx->halfwaves_for_detection[i].halfwave_average_speed = 0.0f;
+        wpd_ctx->halfwaves_for_detection[i].halfwave_smoothed_speed = 0.0f;
     }
 }
 
@@ -1257,6 +1257,7 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, float curr
                 }
             }
 
+
             // Прошли сразу обе зоны за 1 степ -
             // делаем чек на шум, считаем чистый zero cross
             // и отправляем его в контекст чистых переходов 
@@ -1284,6 +1285,8 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, float curr
                     *prev_signal_position = curr_signal_position;
                 }
             }
+
+            break;
 
         // ===== CASE 1 =====
 
@@ -1536,7 +1539,7 @@ void halfwaves_detector_accumulation(Scope* used_scope, float current_value, flo
 
     // Собираю просто среднее значение без направления
     // TODO: узнать, насколько требуется знак (мне кажется, что не нужен)
-    wpdf_ctx->curr_halfwave.halfwave_average_speed = (wpdf_ctx->curr_halfwave.halfwave_average_speed + velocity) / 2;
+    wpdf_ctx->curr_halfwave.halfwave_smoothed_speed = (wpdf_ctx->curr_halfwave.halfwave_smoothed_speed + velocity) / 2;
 
     
     // Peaks
@@ -1639,7 +1642,7 @@ void drop_zc_accumulation(Scope* used_scope, float current_value, float current_
         curr_halfwave->peak_value = -FLT_MAX;
         curr_halfwave->trough_value = FLT_MAX;
         curr_halfwave->halfwave_area = 0.0f;
-        curr_halfwave->halfwave_average_speed = 0.0f;
+        curr_halfwave->halfwave_smoothed_speed = 0.0f;
 
     }
 
@@ -1710,7 +1713,7 @@ void drop_zc_accumulation(Scope* used_scope, float current_value, float current_
         //    curr_halfwave->peak_value
         //    curr_halfwave->trough_value
         //    curr_halfwave->halfwave_area
-        //    curr_halfwave->halfwave_average_speed
+        //    curr_halfwave->halfwave_smoothed_speed
 
 
         add_halfwave_in_buffer(used_scope, wpdf_ctx->curr_halfwave);
@@ -1730,7 +1733,7 @@ void drop_zc_accumulation(Scope* used_scope, float current_value, float current_
         curr_halfwave->peak_value = -FLT_MAX;
         curr_halfwave->trough_value = FLT_MAX;
         curr_halfwave->halfwave_area = 0.0f;
-        curr_halfwave->halfwave_average_speed = 0.0f;
+        curr_halfwave->halfwave_smoothed_speed = 0.0f;
 
 
         // ===== Сброс аккумуляторов zero_cross ===== 
