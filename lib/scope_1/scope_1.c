@@ -106,11 +106,28 @@ void add_halfwave_in_buffer(Scope* used_scope, halfwave_data_ctx new_halfwave);
 
 // scope_slow_update() часть анализа
 
-void detect_pattern_and_period(Scope* used_scope);      // Анализ буффера полуволн для получение паттерна и расчёта периода
+// Анализ буффера полуволн для получение паттерна и расчёта периода
+void detect_pattern_and_period(Scope* used_scope);
 
-void measured_data_update(Scope* used_scope);           // Анализ нескольких последних периодов для получения measured-характеристик  
 
-void scope_find_amplitude(Scope* used_scope);           // Детектор амплитуды
+// Определение основного паттерна (в виде количества полуволн)
+int detect_pattern(Scope* used_scope);
+
+
+// Определение периода по количеству полуволн в паттерне
+void detect_period(Scope* used_scope, int pattern_steps);
+
+
+// Определение степени различия между двумя полуволнами
+float halfwave_distance(halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwave_2);
+
+
+
+
+void scope_find_amplitude(Scope* used_scope);           // Детектор амплитуды по вычисленному периоду
+
+
+void measured_data_update(Scope* used_scope);           // Анализ нескольких последних периодов для получения measured-характеристик
 
 void renew_filter(Scope* used_scope);                   // Настройка фильтров по полученным measured-характеристикам
 
@@ -1777,6 +1794,225 @@ void add_halfwave_in_buffer(Scope* used_scope, halfwave_data_ctx new_halfwave)
 
     if (buffer->count < PERIOD_DETECTOR_BUFFER_SIZE) buffer->count++;
 }
+
+
+void detect_pattern_and_period(Scope* used_scope)
+{
+    wave_pattern_detector_ctx* buffer = &used_scope->signal_control_data.wave_pattern_detector_data;
+
+    // Недостаточно данных или нечетное количество полуволн
+    if (buffer->count % 2 != 0 || (buffer->count < PERIOD_DETECTOR_BUFFER_SIZE / 8)) return;
+
+
+    int pattern_steps = detect_pattern(used_scope);
+
+    detect_period(used_scope, pattern_steps);
+}
+
+
+int detect_pattern(Scope* used_scope)
+{
+    wave_pattern_detector_ctx* buffer = &used_scope->signal_control_data.wave_pattern_detector_data;
+
+    scope_measured_signal_data_ctx* measured_characteristics = &used_scope->signal_control_data.measured_signal_characteristics;
+
+
+    // ===== Подготовка буффера =====
+
+    // Обрезка буффера меньшего размера (учитываем только заполненные полуволны)
+    // Заранее понятно, что буффер имеет четное количество волн
+
+    // можно написать более быструю функцию без копий, но пока такой достаточно
+
+    // Используем трюк с двойным буффером для увеличения шанса обнаружения паттерна
+    halfwave_data_ctx curr_halfwaves_for_detection[buffer->count * 2];
+
+    // Делаем копию заполненной даты буффера в новый двойной буффер
+    for (unsigned int i = 0; i < buffer->count; i++)
+    {
+        curr_halfwaves_for_detection[i] = buffer->halfwaves_for_detection[i];
+        curr_halfwaves_for_detection[i + buffer->count] = buffer->halfwaves_for_detection[i];
+    }
+
+    // ===== Подготовка буффера =====
+
+
+    // ===== Подготовка шаблона =====
+
+    // Работаем с curr_halfwaves_for_detection
+    // Инициализируем массив int[buffer->count * 2]
+    // Проходим функцией сравнения полуволн в 1 сторону, чекая пуста 
+    // ли позиция полуволны в массиве символом и выдаём всем похожим 
+    // полуволнам одинаковые цифры, далее инкрементим перед следующей
+
+    int pattern_elements[buffer->count * 2];
+
+    for (unsigned int i = 0; i < buffer->count * 2; i++)
+    {
+        pattern_elements[i] = 0;
+    }
+
+
+    unsigned int current_pattern_element_number = 1;
+
+    // Односторонний проход циклом for c вложенным for
+
+    for (unsigned int i = 0; i < buffer->count * 2 - 1; i++)
+    {
+        // Проверка выставлено ли уже соответствие полуволны какому-либо паттерн-элементу
+        if (i != 0 && pattern_elements[i] != 0) continue;
+
+        // Иначе - мы в новой полуволне
+        pattern_elements[i] = current_pattern_element_number;
+
+        // Скачем через 1 (так как волны вверх - вниз - вверх - ..., и сравнивать "вверх" с "вниз" - нехорошо)
+        for (unsigned int j = i + 2; j < buffer->count * 2; j += 2)
+        {
+            if (pattern_elements[j] != 0) continue;
+
+            // Ищем разницу между полуволнами
+            float curr_waves_distance = halfwave_distance(&curr_halfwaves_for_detection[i], &curr_halfwaves_for_detection[j]);
+
+            // Если она несущественна
+            if (curr_waves_distance < 0.1)
+            {   
+                // Записываем полуволну, как соответствующую текущему элементу паттерна
+                pattern_elements[j] = pattern_elements[i];
+            }
+        }
+
+
+        // Прошли проверку по i - инкрементировали current_pattern_element_number
+
+        current_pattern_element_number += 1;
+    }
+
+    // ===== Подготовка шаблона =====
+
+
+    // ===== Анализ шаблона =====
+
+    // =========================================================
+    // Pattern detection
+    //
+    // Имеем последовательность элементов:
+    //
+    //      1 2 1 2 3 1 2 1 2 3
+    //
+    // которая была получена после сравнения полуволн.
+    //
+    // Требуется найти самый длинный повторяющийся шаблон.
+    //
+    // Для этого:
+    //
+    //      1. Перебираем возможную длину шаблона L
+    //         от максимально возможной до минимальной.
+    //
+    //      2. Для каждой L проверяем все возможные начала
+    //         шаблона (offset).
+    //
+    //      3. Сравниваем:
+    //
+    //              [offset ........ offset+L)
+    //
+    //                      и
+    //
+    //              [offset+L .... offset+2L)
+    //
+    //         Если они полностью совпадают,
+    //         значит найден повторяющийся шаблон.
+    //
+    // Буфер заранее удвоен:
+    //
+    //      ABCDE -> ABCDEABCDE
+    //
+    // поэтому никакой обработки кольцевого перехода
+    // здесь уже не требуется.
+    //
+    // Возвращается максимально длинный найденный шаблон.
+    //
+    // =========================================================
+
+    int best_pattern_len = 0;
+
+    int pattern_size = buffer->count;
+
+    // Максимальная возможная длина периода.
+    //
+    // Период обязан повториться минимум два раза,
+    // поэтому длиннее половины буфера быть не может.
+
+    for (int L = pattern_size / 2; L >= 2; L--)
+    {
+        // Проверяем все возможные положения начала шаблона.
+        //
+        // Благодаря двойному буферу можем спокойно
+        // двигаться до конца первого буфера.
+
+        for (int offset = 0; offset < pattern_size; offset++)
+        {
+            bool pattern_equal = true;
+
+            // Сравнение двух подряд идущих блоков длиной L.
+            //
+            //      offset
+            //         │
+            //         ▼
+            //
+            // 1 2 1 2 3 1 2 1 2 3
+            // └───────┘└───────┘
+            //     block A   block B
+
+            for (int i = 0; i < L; i++)
+            {
+                if (pattern_elements[offset + i] !=
+                    pattern_elements[offset + L + i])
+                {
+                    pattern_equal = false;
+                    break;
+                }
+            }
+
+            // Если найдено полное совпадение,
+            // значит найден период длиной L.
+            //
+            // Так как перебор идёт сверху вниз,
+            // это автоматически период (максимальный паттерн с повтором).
+
+            if (pattern_equal)
+            {
+                best_pattern_len = L;
+
+                // Допустимо
+                goto pattern_found;
+            }
+        }
+    }
+
+    pattern_found:
+
+    return best_pattern_len;
+
+
+    // ===== Анализ шаблона =====
+
+}
+
+
+void detect_period(Scope* used_scope, int pattern_steps)
+{
+    wave_pattern_detector_ctx* buffer = &used_scope->signal_control_data.wave_pattern_detector_data;
+
+
+}
+
+
+float halfwave_distance(halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwave_2)
+{
+
+}
+
+
 
 
 
