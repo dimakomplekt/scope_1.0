@@ -1897,7 +1897,7 @@ int detect_pattern(Scope* used_scope)
     //
     // Имеем последовательность элементов:
     //
-    //      1 2 1 2 3 1 2 1 2 3
+    //      1 2 1 2 3 2 1 2 1 2 3 2
     //
     // которая была получена после сравнения полуволн.
     //
@@ -2003,7 +2003,39 @@ void detect_period(Scope* used_scope, int pattern_steps)
 {
     wave_pattern_detector_ctx* buffer = &used_scope->signal_control_data.wave_pattern_detector_data;
 
+    // Вводим первичные индексы
 
+    int start_halfwave_idx = 0;
+    int end_halfwave_idx = pattern_steps - 1;
+
+    // Инициируем счётчик и сумму
+
+    int counter = 0;
+
+    float summ_period = 0.0f;
+
+
+    // Обходим буффер, сравниваясь с count
+    while (end_halfwave_idx <= buffer->count - 1)
+    {
+
+        // Суммируемся
+        summ_period += 
+
+            buffer->halfwaves_for_detection[start_halfwave_idx].start_time + 
+            buffer->halfwaves_for_detection[end_halfwave_idx].end_time;
+
+        counter += 1;
+
+
+        // Сдвигаемся
+        start_halfwave_idx = end_halfwave_idx + 1;
+        end_halfwave_idx += pattern_steps;
+
+    }
+
+    // Возвращаем среднее значение
+    return (summ_period / (float)counter); 
 }
 
 
@@ -2014,21 +2046,7 @@ float halfwave_distance(halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwa
 
 
 
-
-
 // scope_slow_update() часть анализа
-
-void detect_pattern_and_period(Scope* used_scope)
-{
-
-}
-
-
-void measured_data_update(Scope* used_scope)
-{
-
-}
-
 
 void scope_find_amplitude(Scope* used_scope)
 {
@@ -2036,10 +2054,19 @@ void scope_find_amplitude(Scope* used_scope)
 }
 
 
+void measured_data_update(Scope* used_scope)
+{
+    detect_pattern_and_period(used_scope);
+
+    scope_find_amplitude(used_scope);
+}
+
+
 void renew_filter(Scope* used_scope)
 {
 
 }
+
 
 // Основные функции
 
