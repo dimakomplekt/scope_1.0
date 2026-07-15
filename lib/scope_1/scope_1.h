@@ -133,7 +133,7 @@ typedef enum controlled_signal_type
 
 
 // Одиночный сэмпл основного буффера
-typedef struct sample {
+typedef struct sample_t {
 
     float value;       // Значение сигнала
     double time;       // Время приёма сигнала
@@ -143,7 +143,7 @@ typedef struct sample {
 
 
 // Основной буффер
-typedef struct scope_buffer {
+typedef struct scope_buffer_ctx {
 
     sample_t samples[BUFFER_SIZE];
 

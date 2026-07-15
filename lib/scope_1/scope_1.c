@@ -115,7 +115,7 @@ int detect_pattern(Scope* used_scope);
 
 
 // Определение периода по количеству полуволн в паттерне
-void detect_period(Scope* used_scope, int pattern_steps);
+float detect_period(Scope* used_scope, int pattern_steps);
 
 
 // Определение степени различия между двумя полуволнами
@@ -1803,10 +1803,11 @@ void detect_pattern_and_period(Scope* used_scope)
     // Недостаточно данных или нечетное количество полуволн
     if (buffer->count % 2 != 0 || (buffer->count < PERIOD_DETECTOR_BUFFER_SIZE / 8)) return;
 
-
+    // Определили паттерн
     int pattern_steps = detect_pattern(used_scope);
 
-    detect_period(used_scope, pattern_steps);
+    // Нашли период
+    used_scope->signal_control_data.measured_signal_characteristics.measured_period = detect_period(used_scope, pattern_steps);
 }
 
 
@@ -1999,7 +2000,7 @@ int detect_pattern(Scope* used_scope)
 }
 
 
-void detect_period(Scope* used_scope, int pattern_steps)
+float detect_period(Scope* used_scope, int pattern_steps)
 {
     wave_pattern_detector_ctx* buffer = &used_scope->signal_control_data.wave_pattern_detector_data;
 
@@ -2016,23 +2017,51 @@ void detect_period(Scope* used_scope, int pattern_steps)
 
 
     // Обходим буффер, сравниваясь с count
-    while (end_halfwave_idx <= buffer->count - 1)
+    // Проходим стартовым индексом все позиции в буффере
+    while (start_halfwave_idx <= buffer->count - 1)
     {
 
-        // Суммируемся
-        summ_period += 
+        // Буффер может закольцеваться!
 
-            buffer->halfwaves_for_detection[start_halfwave_idx].start_time + 
-            buffer->halfwaves_for_detection[end_halfwave_idx].end_time;
+        // Обычная сумма
+        if (buffer->halfwaves_for_detection[start_halfwave_idx].start_time < buffer->halfwaves_for_detection[end_halfwave_idx].end_time)
+        {
+            // Дополняем сумму периодов
+            summ_period += 
+ 
+                buffer->halfwaves_for_detection[end_halfwave_idx].end_time -
+                buffer->halfwaves_for_detection[start_halfwave_idx].start_time;
 
-        counter += 1;
+            // Увеличиваем счётчик
+            counter += 1;
+        }
+        else
+        {
+            // Cкип в случае перевёрнутого буффера - сумма будет вычислена, когда (end_halfwave_idx + pattern_steps) % buffer->count;
+            // начнёт переводить конечный индекс на новое значение   
+        }
 
 
-        // Сдвигаемся
+        // Сдвиг к след. вычислению
+
+        // Стоппер сдвига в случае прихода к краю
+        if (start_halfwave_idx + pattern_steps >= buffer->count) break;
+
+
+        // Следующий после прошлого end
         start_halfwave_idx = end_halfwave_idx + 1;
-        end_halfwave_idx += pattern_steps;
+
+        // Сдвиг к следующему с учетом кольца
+        end_halfwave_idx = (end_halfwave_idx + pattern_steps) % buffer->count;
 
     }
+
+    if (counter == 0)
+    {
+        fprintf(stderr, "Counter error!\n");
+        return 0.0f;
+    }
+
 
     // Возвращаем среднее значение
     return (summ_period / (float)counter); 
@@ -2048,18 +2077,75 @@ float halfwave_distance(halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwa
 
 // scope_slow_update() часть анализа
 
+
+void measured_data_update(Scope* used_scope)
+{
+
+    scope_measured_signal_data_ctx* measured_parameters = &used_scope->signal_control_data.measured_signal_characteristics;
+
+    scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
+
+
+    // Обновляем недостающую дату
+
+    /*
+        typedef struct scope_measured_signal_data_ctx {
+
+            // Текущая степень доверия к running-характеристикам (под настройку alpha и betha
+            // mean_part_in_offset, median_part_in_offset)
+            float current_confidence_to_running;     
+
+            float measured_period;       // Всегда в секундах
+            float measured_frequency;    // Всегда в герцах
+
+            float measured_mean;
+            float measured_median;
+
+            float measured_max;
+            float measured_min;
+
+            float measured_dc_offset;
+
+        } scope_measured_signal_data_ctx;
+
+    
+    */
+
+    // По паре периодов через буффер
+
+    /*
+    
+    // Одиночный сэмпл основного буффера
+    typedef struct sample {
+
+        float value;       // Значение сигнала
+        double time;       // Время приёма сигнала
+        double delta_t;    // Разница между временем приёма текущего сигнала и прошлого
+
+    } sample_t;
+
+
+    // Основной буффер
+    typedef struct scope_buffer {
+
+        sample_t samples[BUFFER_SIZE];
+
+        int head;                                      // Текущий индекс (для записи и чтения)
+        int count;                                     // Счётчик (для контроля переполнений)
+
+    } scope_buffer_ctx;
+
+    */
+
+
+}
+
+
 void scope_find_amplitude(Scope* used_scope)
 {
 
 }
 
-
-void measured_data_update(Scope* used_scope)
-{
-    detect_pattern_and_period(used_scope);
-
-    scope_find_amplitude(used_scope);
-}
 
 
 void renew_filter(Scope* used_scope)
@@ -2090,8 +2176,6 @@ void signal_slow_analysis(Scope* used_scope)
     detect_pattern_and_period(used_scope);      // Анализ буффера полуволн для получение паттерна и расчёта периода
 
     measured_data_update(used_scope);           // Анализ нескольких последних периодов для получения measured-характеристик  
-
-    scope_find_amplitude(used_scope);           // Детектор амплитуды
 
     renew_filter(used_scope);                   // Настройка фильтров по полученным measured-характеристикам
 }
