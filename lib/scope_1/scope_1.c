@@ -121,15 +121,16 @@ float detect_period(Scope* used_scope, int pattern_steps);
 // Определение степени различия между двумя полуволнами
 float halfwave_distance(halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwave_2);
 
+// Сравнение 2 чисел
+int compare_float(const void* a, const void* b);
 
 
+// Анализ нескольких последних периодов для получения measured-характеристик
+void measured_data_update(Scope* used_scope);           
 
-void scope_find_amplitude(Scope* used_scope);           // Детектор амплитуды по вычисленному периоду
 
-
-void measured_data_update(Scope* used_scope);           // Анализ нескольких последних периодов для получения measured-характеристик
-
-void renew_filter(Scope* used_scope);                   // Настройка фильтров по полученным measured-характеристикам
+ // Настройка фильтров по полученным measured-характеристикам
+void renew_filter(Scope* used_scope);
 
 
 // Основные функции
@@ -758,7 +759,7 @@ void scope_buffer_update(Scope* used_scope)
     }
     
 
-    // update ring buffer
+    // Update ring buffer
     buffer->head = (head + 1) % BUFFER_SIZE;
 
     if (buffer->count < BUFFER_SIZE) buffer->count++;
@@ -1808,6 +1809,8 @@ void detect_pattern_and_period(Scope* used_scope)
 
     // Нашли период
     used_scope->signal_control_data.measured_signal_characteristics.measured_period = detect_period(used_scope, pattern_steps);
+
+    used_scope->signal_control_data.measured_signal_characteristics.measured_frequency = 1.0f / used_scope->signal_control_data.measured_signal_characteristics.measured_period;
 }
 
 
@@ -2078,13 +2081,20 @@ float halfwave_distance(halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwa
 // scope_slow_update() часть анализа
 
 
+int compare_float(const void* a, const void* b)
+{
+    float fa = *(const float*)a;
+    float fb = *(const float*)b;
+
+    if (fa < fb) return -1;
+    if (fa > fb) return 1;
+
+    return 0;
+}
+
+
 void measured_data_update(Scope* used_scope)
 {
-
-    scope_measured_signal_data_ctx* measured_parameters = &used_scope->signal_control_data.measured_signal_characteristics;
-
-    scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
-
 
     // Обновляем недостающую дату
 
@@ -2116,7 +2126,7 @@ void measured_data_update(Scope* used_scope)
     /*
     
     // Одиночный сэмпл основного буффера
-    typedef struct sample {
+    typedef struct sample_t {
 
         float value;       // Значение сигнала
         double time;       // Время приёма сигнала
@@ -2138,14 +2148,259 @@ void measured_data_update(Scope* used_scope)
     */
 
 
+    scope_measured_signal_data_ctx* measured_parameters = &used_scope->signal_control_data.measured_signal_characteristics;
+
+    scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
+
+
+    // Пытаемся собрать дату по 4 периодам, идя назад от [head - 1] буффера
+
+    if (measured_parameters->measured_frequency <= 0.0f) return;
+
+    int samples_per_period = (int)(SCOPE_SAMPLE_RATE / measured_parameters->measured_frequency);
+
+
+    unsigned int periods_for_check;
+
+    if (measured_parameters->measured_frequency < 100)
+    {
+        periods_for_check = 1;
+    }
+    else if (measured_parameters->measured_frequency > 100 && measured_parameters->measured_frequency < 1000)
+    {
+        periods_for_check = 2;
+    }
+    else
+    {
+        periods_for_check = 4;
+    }
+
+
+    // ===== Data declare =====
+
+    // Mean
+
+    float total_samples_value = 0.0f;
+
+    
+    // Median
+
+    // Верхняя оценка числа сэмплов для окна измерения.
+    // Частота является измеренной величиной и может отличаться от фактической,
+    // поэтому оставляем запас, чтобы гарантированно вместить все точки окна.
+
+    unsigned int samples_for_check = samples_per_period * periods_for_check + 1000;
+
+
+    float values[samples_for_check];
+
+    float measured_median = 0.0f;
+
+
+    // Extrema
+
+    float measured_max = -FLT_MAX;
+
+    float measured_min = FLT_MAX;
+
+
+    // Init passthrough data
+
+    float elapsed_time_on_this_period = measured_parameters->measured_period; 
+
+    int passed_periods_counter = 0;
+    int passed_samples_counter = 0;
+    
+
+    unsigned int curr_buffer_position;
+    unsigned int prev_buffer_position;
+    
+    if (buffer->head >= 2)
+    {
+        curr_buffer_position = buffer->head - 1;
+        prev_buffer_position = buffer->head - 2;
+    }
+
+    else if (buffer->head == 1)
+    {
+        curr_buffer_position = buffer->head - 1;
+        prev_buffer_position = BUFFER_SIZE - 1;
+    }
+
+    else if (buffer->head == 0)
+    {
+        curr_buffer_position = BUFFER_SIZE - 1;
+        prev_buffer_position = BUFFER_SIZE - 2;
+    }
+
+
+    // ===== Data declare =====
+
+    // Pass states
+
+    bool pass_through_needed_periods = false;
+    bool end_of_data = false;
+    bool samples_for_check_overthrow = false;
+
+    // Обход
+    while (!pass_through_needed_periods && !end_of_data && !samples_for_check_overthrow)
+    {   
+
+        sample_t curr_sample = buffer->samples[curr_buffer_position];
+        sample_t prev_sample = buffer->samples[prev_buffer_position];
+
+
+        // Чек закончились данные или нет
+        if (curr_sample.time < prev_sample.time)
+        {
+            end_of_data = true;
+            continue;
+        }
+
+
+        // Производим аккумуляцию данных
+
+        // Mean summ update
+
+        total_samples_value += curr_sample.value;
+
+
+        // Extremas check
+
+        if (curr_sample.value > measured_max) measured_max = curr_sample.value;
+
+        if (curr_sample.value < measured_min) measured_min = curr_sample.value;
+
+
+        // Median check 
+
+        // Копируем значение для последующего поиска медианы
+        values[passed_samples_counter] = curr_sample.value;
+
+
+        // Обновляем счётчик обхода
+        passed_samples_counter += 1;
+
+
+        // Сдвигаемся с учётом кольца
+        curr_buffer_position =
+            (curr_buffer_position == 0) ? BUFFER_SIZE - 1 : curr_buffer_position - 1;
+
+        prev_buffer_position =
+            (prev_buffer_position == 0) ? BUFFER_SIZE - 1 : prev_buffer_position - 1;
+
+
+
+        // Чек обхода периодов - по дельте можно определить
+        // что следующий переход бессмысленен
+        if (elapsed_time_on_this_period - curr_sample.delta_t < 0)
+        {
+            passed_periods_counter += 1;
+
+            elapsed_time_on_this_period = measured_parameters->measured_period;
+
+            // Значит на следующем шаге пойдет уже лишний период
+            if (passed_periods_counter == periods_for_check)
+            {
+                pass_through_needed_periods = true;
+                continue;
+            }
+        }
+        else
+        {
+            // Дефолтно обновляем таймер
+            elapsed_time_on_this_period = elapsed_time_on_this_period - curr_sample.delta_t;
+        }
+
+
+        // Следим, чтобы буффер не переполнился на следующем шаге
+        if (passed_samples_counter >= samples_for_check)
+        {
+            samples_for_check_overthrow = true;
+        }
+    } 
+
+
+    bool continue_data_update = false;
+    {
+    // Обрабатываем завершение обхода, исходя из выставленного флага (невозможно получить сразу 2 флага,
+    // так как 2 из трёх дропают обход, через continue)
+        if (pass_through_needed_periods)
+        {   
+            continue_data_update = true;
+        }
+
+        if (end_of_data)
+        {
+            // Смотрим, прошли ли мы хотя бы 1 период
+            if (passed_periods_counter >= 1)
+            {
+                continue_data_update = true;
+            }
+        }
+
+        if (samples_for_check_overthrow)
+        {
+            // Смотрим, прошли ли мы хотя бы 1 период
+            if (passed_periods_counter >= 1)
+            {
+                continue_data_update = true;
+            }
+        }
+    }
+
+
+    if (continue_data_update)
+    {
+        // Записываем новые значения среднего и экстремумов
+
+        measured_parameters->measured_mean = (float)(total_samples_value / passed_samples_counter); 
+
+        measured_parameters->measured_dc_offset = measured_parameters->measured_mean;
+
+
+        measured_parameters->measured_max = measured_max;
+        measured_parameters->measured_min = measured_min;
+
+
+        // Производим поиск медианы через срезку первичного массива до 
+        // заполненных данных, сортировку и значение в середине
+        // Работаем с values[passed_samples_counter] только до values[passed_samples_counter - 1]
+
+        // Сортируем только заполненную часть массива
+        qsort(
+
+            values,
+            passed_samples_counter,
+            sizeof(float),
+            compare_float
+        
+        );
+
+        // Вычисляем медиану
+        if (passed_samples_counter % 2 == 0)
+        {
+            measured_median =
+                (values[passed_samples_counter / 2 - 1] +
+                values[passed_samples_counter / 2]) * 0.5f;
+        }
+        else
+        {
+            measured_median = values[passed_samples_counter / 2];
+        }
+
+        // Записываем результат
+        measured_parameters->measured_median = measured_median;
+
+
+        // Вычисляем offset
+
+
+        return;
+    }
+
+    else return;
 }
-
-
-void scope_find_amplitude(Scope* used_scope)
-{
-
-}
-
 
 
 void renew_filter(Scope* used_scope)
