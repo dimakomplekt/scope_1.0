@@ -13,26 +13,30 @@
 
 #include <stdbool.h>
 
+// For sort
+#include <stdlib.h>
+
 // =========================================================================================== IMPORT
 
 
-// =========================================================================================== SCOPE STRUCT
 
-
-// ===== Buffer type =====
+// =========================================================================================== SCOPE MAIN SETTINGS
 
 // RAW LVL
 #define SCOPE_SAMPLE_RATE                   48000
 #define MIN_CONTROLLED_PERIOD               2
 #define SCOPE_BUFFER_STOCK                  4
 
+#define FILTER_WARMUP_SAMPLES               24
+
 // VIEW LVL
+#define MAX_CONTROLLED_FREQ                 20000
 #define MAX_DISPLAY_WIDTH                   2000
 #define SCOPE_SCREEN_OVERSAMPLING           4
 
-#define MAX_ZERO_CROSSINGS_TO_CHECK         64
 
 #define BUFFER_SIZE                         (SCOPE_SAMPLE_RATE * MIN_CONTROLLED_PERIOD * SCOPE_BUFFER_STOCK)
+#define PERIOD_DETECTOR_BUFFER_SIZE         64
 #define RENDER_POINTS_BUFFER_SIZE           (MAX_DISPLAY_WIDTH * SCOPE_SCREEN_OVERSAMPLING)
 
 #define FREQ_TO_SEPARATE_MODES_LB           230
@@ -40,13 +44,116 @@
 
 #define ZC_THRESHOLD_START_VALUE 0.005f
 
+#define MAX_ALLOWED_DEVIATION_IN_SIGMAS 3.0f
+
+
+#define MIN_RUNNING_BETHA 0.0001f
+#define MAX_RUNNING_BETHA 0.1000f
+
+
+#define MIN_K_THRESHOLD 0.5f
+#define MAX_K_THRESHOLD 3.0f
+
+#define MIN_MEDIAN_PART 0.25
+#define MAX_MEDIAN_PART 0.75
+
+
+#define BETHA_STEP          0.0005f
+#define K_THRESHOLD_STEP    0.01f
+#define OFFSET_BLEND_STEP   0.01f
+
+// ===== Scope mode enum =====
+
+// Включен или выключен
+typedef enum scope_state
+{
+    
+    OFF_SS,
+    ON_SS,
+
+    LIMIT_SS
+
+} scope_state;
+
+
+// Режим рендеринга
+typedef enum scope_render_mode
+{
+
+    SCOPE_MODE_FIXED_TIME_STEP_SRM,
+    SCOPE_MODE_SCROLL_TO_RIGHT_SRM,
+    SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM,
+
+    LIMIT_SRM
+
+} scope_render_mode;
+
+
+// Текущие единицы отображения сигнала
+typedef enum signal_units
+{
+
+    VOLTS_SU,
+    
+    LIMIT_SU
+
+} signal_units;
+
+
+// Текущие единицы отображения времени или периода
+typedef enum time_units
+{
+
+    NANOSECONDS_TU,
+    MICROSECONDS_TU,
+    MILLISECONDS_TU,
+    SECONDS_TU,
+
+    LIMIT_TU
+    
+} time_units;
+
+
+// Текущие единицы отображения частоты
+typedef enum frequency_units
+{
+
+    MILLIHERTZ_FU,
+    HERTZ_FU,
+    KILOHERTZ_FU,
+    MEGAHERTZ_FU,
+
+    LIMIT_FU
+    
+} frequency_units;
+
+
+// Тип контролируемого сигнала - КОСТЫЛЬ ПОД ТЕКУЩУЮ ЗАДАЧУ
+typedef enum controlled_signal_type
+{
+
+    CLEAN_CST,
+    NOISED_CST,
+    
+    LIMIT_CST
+    
+} controlled_signal_type;
+
+
+
+// =========================================================================================== SCOPE MAIN SETTINGS
+
+
+// =========================================================================================== SCOPE MAIN BUFFER
+
 // Кольцевой буфер - пишем всегда в head, при переполнении начинаем перезаписывать старую дату, чтение
 // производим для элементов, которые стоят до head (в случае переполнения при переходе head в [0] и 
 // чтении [head - 1] получим чтение head[BUFFER_SIZE]) соотв. дата всегда будет адекватной без необходимости
 // производить сдвиги значений
 
 
-typedef struct sample {
+// Одиночный сэмпл основного буффера
+typedef struct sample_t {
 
     float value;       // Значение сигнала
     double time;       // Время приёма сигнала
@@ -55,7 +162,8 @@ typedef struct sample {
 } sample_t;
 
 
-typedef struct scope_buffer {
+// Основной буффер
+typedef struct scope_buffer_ctx {
 
     sample_t samples[BUFFER_SIZE];
 
@@ -65,17 +173,350 @@ typedef struct scope_buffer {
 } scope_buffer_ctx;
 
 
-typedef struct zero_crossing_ctx
+// =========================================================================================== SCOPE MAIN BUFFER
+
+
+// =========================================================================================== SCOPE REALTIME ANALYSER
+
+
+// ===== Основные характеристики всего сигнала =====
+
+// Среднее значение
+typedef struct running_mean_ctx {
+
+    float mean;
+
+    float alpha;        // EMA alpha
+
+} running_mean_ctx;
+
+
+// Медиана
+typedef struct running_median_ctx {
+
+    float median;
+
+    float step;        // скорость адаптации
+    float drift;       // накопленный перекос
+
+} running_median_ctx;
+
+
+// Общий контекст фильтрации инпута
+typedef struct scope_realtime_filtering_ctx {
+
+    float running_betha;
+    
+    float running_sigma_squad;
+
+    // Коэффициент трешхолда
+    float k_treshold;
+    float running_treshold;
+
+} scope_realtime_filtering_ctx;
+
+
+// Общий контекст running основных характеристик
+typedef struct scope_running_signal_data_ctx {
+
+    running_mean_ctx running_mean;
+    running_median_ctx running_median;
+
+    // Offset, как 0.7 * median + 0.3 * mean;
+    // С изменением долей по результатам сравнения measured с running
+    float median_part_in_offset;
+    float mean_part_in_offset;
+
+    float running_dc_offset;
+
+    // Используются в детекторе полуволн для расчёта скорости волны
+    // при пропусках шагов буффера из-за шума
+    float last_not_noise_value;
+    float last_not_noise_time;
+
+} scope_running_signal_data_ctx;
+
+
+// Общий контекст measured-основных характеристик
+typedef struct scope_measured_signal_data_ctx {
+
+    // Текущая степень доверия к running-характеристикам (под настройку alpha и betha
+    // mean_part_in_offset, median_part_in_offset)
+    float current_confidence_to_running;     
+
+    float measured_period;       // Всегда в секундах
+    float measured_frequency;    // Всегда в герцах
+
+    float measured_mean;
+    float measured_median;
+
+    float measured_max;
+    float measured_min;
+    float measured_amplitude;
+
+    float measured_dc_offset;
+
+} scope_measured_signal_data_ctx;
+
+// ===== Основные характеристики всего сигнала =====
+
+
+// =====  Peak-детектор + полуволна =====
+
+// Типы трендов
+typedef enum trend_type {
+
+    STATIC_PT,      // Неподвижный сигнал
+    RISING_PT,      // Восходящий сигнал
+    FALLING_PT,     // Нисходящий сигнал
+
+} trend_type;
+
+// Позиция сигнала относительно treshold zone (dc_offset +- treshold)
+typedef enum signal_position
 {
-    double times[MAX_ZERO_CROSSINGS_TO_CHECK];
+
+    BELOW_ZC_TZ_SP,
+    INSIDE_ZC_TZ_SP,
+    ABOVE_ZC_TZ_SP,
+
+} signal_position;
+
+// Контекст анализатора переходов, который хранит данные
+// о переходах и выводит их обработку в буффер zero_crosses_detector с
+// определенным количеством точек cleaned_zero_cross, к примеру - 128 точками
+typedef enum wave_pattern_buffer_former_states
+{
+
+    WAIT_FALLING_PLUS_FS,
+    WAIT_FALLING_MINUS_FS,
+
+    WAIT_RISING_MINUS_FS,
+    WAIT_RISING_PLUS_FS,
+
+    LIMIT_FS
+
+} wave_pattern_buffer_former_states;
+
+
+// Общий контекст пиков
+// используется в peak_detector для поиска runtime пиков 
+// и характеристик контролируемых полуволн
+typedef struct scope_realtime_peaks_ctx {
+    
+    trend_type prev_trend;              // Предыдущий тренд сигнала
+
+    float trend_confidence;             // Интегральная мера устойчивости локального тренда.
+    
+    float last_event_confidence;
+
+    float peak_candidate;               // Кандидат на пик
+    float trough_candidate;             // Кандидат на яму
+
+    float last_peak;                    // Прошлый пик
+    float last_trough;                  // Прошлая яма
+
+    float max_candidate;                // Кандидат на максимум
+    float min_candidate;                // Кандидат на минимум
+
+    float max_confidence;               // Уверенность в кандидате
+    float min_confidence;               // Уверенность в кандидате
+
+    float running_max;                  // Текущее максимальное значение
+    float running_min;                  // Текущее минимальное значение
+
+    float running_amplitude;            // Текущая амплитуда
+
+} scope_realtime_peaks_ctx;
+
+
+// Очищенное время перехода, вычисленное на базе суммы t деленной на 2,
+// от переходов без смены курса, через dc_offset - treshold и dc_offset + treshold
+// Оформляется для текущей контролируемой полуволны в peak_detector 
+typedef struct cleaned_zero_cross
+{
+
+    trend_type zero_cross_type;         // RISING (из - в +) или FALLING (из + в -)
+
+    double time;                        // Время прохода
+
+    bool filled;                        // Статус заполнения
+
+} cleaned_zero_cross;
+
+
+// Данные о полуволне, по которым возможно провести анализ паттерна
+// Оформляется для текущей контролируемой полуволны в peak_detector 
+typedef struct halfwave_data_ctx
+{
+    // За 1 проход на приёме данных от buffer_former
+
+    trend_type halfwave_type;            // Характер полуволны 
+
+    double start_time;
+    double end_time;
+
+    // По принятым данным 
+    double halfwave_full_time;           // Примерное полное время полуволны
+    
+
+    // За тот же проход на приёме данных по главному буфферу :
+
+    float peak_value;                    // Максимум (по главному буфферу от head - до head.halfwave_full_time)
+    float trough_value;                  // Минимум (по главному буфферу от head - до head.halfwave_full_time)
+    
+    // Площадь - с пренебрежением разницы по dx (по главному буфферу от head - до head.halfwave_full_time)
+    float halfwave_area;                 // Примерная площадь этой полуволны
+
+    float halfwave_smoothed_speed;       // Примерная средняя скорость изменения значений в этой полуволне (просто EMA)
+
+} halfwave_data_ctx;
+
+
+// Двухпороговый захват времени с переобновлением текущей границы при повторных входах
+typedef struct wave_pattern_detector_former_ctx
+{
+
+    /*
+
+        Я зашел в 1 зону, у меня rised_without_fall стоит false, сколько раз я бы не дропался и не возвращалолся,
+        пока он false я просто обновляю rising_dc_minus_th_time на новое при новом заходе, как только я пересекаю 
+        dc_offset + treshold, я ставлю rised_without_fall, как true, ставлю falled_without_rise, как false
+        и curr_waited_type переключаю на FALLING
+
+    */
+   
+    signal_position prev_signal_position;                           // Предыдущая позиция сигнала относительно dc_offset +- treshold
+
+
+    wave_pattern_buffer_former_states prev_buffer_former_state;     // Переход какой точки RISING или FALLING через 0 ожидался ранее на приход в формер
+
+    wave_pattern_buffer_former_states buffer_former_state;          // Переход какой точки RISING или FALLING через 0 ожидается на приход в формер
+
+
+    halfwave_data_ctx curr_halfwave;                                // Текущая анализируемая полуволна, которая при окончании анализа будет передана в zero_crosses_detector
+
+
+    // Инкрементальный счётчик, демонстрирующий на сколько тиков мы ушли от head основного буффера сигнала в 
+    // рамках текущей полуволны. 
+    
+    // При первичном оправдании ожидаемого в wave_pattern_buffer_former_states
+    // стейта выставляет point_1_time и при посылке сигнала на отсутствие 
+    // значимых переходов делает += 1. Если дальнейший значимый переход не оправдывает надежд
+    // из wave_pattern_buffer_former_states - point_1_time сбрасывается (перезаписывается на следующем значимом переходе), а 
+    // тип значимого перехода меняется на предыдущий по стейт машине. Если надежды
+    // оправданы, то записывается point_2_time для текущего перехода, по point_1_time и point_2_time, как  
+    // 0.5 (point_1_time + point_2_time) обновляется halfwave_zero_crosses[n] (в зависимости от типа перехода n = 0 или 1)
+
+
+    cleaned_zero_cross halfwave_zero_crosses[2];        // Две заполняемые точки полуволны
+
+
+    // При повторном входе в текущую границу (dc - threshold или dc + threshold)
+    // время перехода перезаписывается, так как фиксируется
+    // последняя точка устойчивого входа в зону гистерезиса
+
+    // если начат переход
+    // и тренд сменился
+
+    // → отменить переход
+    // → очистить временные метки
+    // → ждать заново
+
+
+    // В случае записи halfwave_zero_crosses[1] на этом же шаге внутри curr_halfwave по производимому рассчёту записываются:
+
+        // trend_type halfwave_type;                   // Характер полуволны
+        // double halfwave_full_time;                  // Полное время полуволны
+
+        // На этом же шаге по текущему head основного буффера и значению halfwave_full_time производится рассчёт:
+
+        // float halfwave_area;                        // Примерной площади этой полуволны
+        // float halfwave_smoothed_speed;               // Примерной средняя скорость изменения значений в этой полуволне
+
+
+        // На этом же шаге по текущему head кольцевого zero_cross_detector буффера производится запись проанализированной полуволны в halfwaves_for_detection
+        // текущего zero_crosses_detector:
+
+
+    /*
+        Сигнал может скакать вокруг трешхолда.
+
+        Существуют 3 состояния статуса сигнала относительно участка dc_offset +- treshold:
+
+        И 4 состояния текущего и предыдущего ожидания перехода 
+
+        По этим состояниям необходимо понять, как надо производить измерение скорости, измерение площади
+        и фиксацию времени перехода.
+
+        При шумовых переходах (предыдущий ожидаемый стейт - шум, шум - шум, шум - предыдущий ожидаемый стейт
+        вместо текущего ожидаемого стейта) требуется не инкрементировать данные о полуволне, а просто держать
+        последние нормальные поступившие значения счётчика количества сигналов в полуволне, значение и время
+        предыдущего сигнала с допустимым доверием, среднюю скорость и площадь полуволны неизменными до тех пор,
+        пока не произойдет переход "шум - текущий ожидаемый стейт", после чего зафиксировать 1 zero cross, как 
+        среднее арифмитическое между последней чистой точкой и точкой реализации ожидаемого перехода. 
+    
+    */
+
+    // В некоторых случаях переходы значений сигнала между состояниями ведут к выставлению
+    // accumulation_block в true, что управляет логикой аккумуляции данных о полуволне 
+    bool accumulation_block;
+
+    // Для фиксации последней чистой точки
+
+    float prev_clean_signal_value;          // Значение предыдущего сигнала с допустимым доверием
+    float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
+
+} wave_pattern_detector_former_ctx;
+
+
+// Хранит данные о последних 64 (128 / 2) вычищенных от шума полуволны с их показателями
+// Используется в анализаторе паттернов и непосредственно при расчёте периода 
+typedef struct wave_pattern_detector_ctx 
+{
+    halfwave_data_ctx halfwaves_for_detection[PERIOD_DETECTOR_BUFFER_SIZE];
 
     int head;
     int count;
 
-    int state; // -1 = below, +1 = above
+} wave_pattern_detector_ctx;
 
-} zero_crossing_ctx;
+// ===== Полуволна =====
 
+// =========================================================================================== SCOPE REALTIME ANALYSER
+
+
+// =========================================================================================== SCOPE PERIOD AND PEAKS ANALYSER
+
+
+typedef struct pattern_candidate
+{
+
+    int L;
+    int offset;
+    float error;
+    float repeat_score;
+
+} pattern_candidate;
+
+
+typedef struct pattern_result
+{
+
+    int period_len;     // длина периода (в полуволнах)
+    int offset;         // фазовый сдвиг в буфере
+    float confidence;   // уверенность совпадения
+
+} pattern_result;
+
+
+// =========================================================================================== SCOPE PERIOD AND PEAKS ANALYSER
+
+
+// =========================================================================================== SCOPE RENDERING
+
+
+// ===== Scope display render data =====
 
 // RAW → ANALYSIS → VIEW (DISPLAY) → PIXELS
 typedef struct signal_render_point
@@ -97,78 +538,7 @@ typedef struct signal_render_ctx
 } signal_render_ctx;
 
 
-// ===== Scope mode enum =====
-
-typedef enum scope_state
-{
-    
-    OFF_SS,
-    ON_SS,
-
-    LIMIT_SS
-
-} scope_state;
-
-
-typedef enum scope_render_mode
-{
-
-    SCOPE_MODE_FIXED_TIME_STEP_SRM,
-    SCOPE_MODE_SCROLL_TO_RIGHT_SRM,
-    SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM,
-
-    LIMIT_SRM
-
-} scope_render_mode;
-
-
-typedef enum signal_units
-{
-
-    VOLTS_SU,
-    
-    LIMIT_SU
-
-} signal_units;
-
-
-
-typedef enum time_units
-{
-
-    NANOSECONDS_TU,
-    MICROSECONDS_TU,
-    MILLISECONDS_TU,
-    SECONDS_TU,
-
-    LIMIT_TU
-    
-} time_units;
-
-
-typedef enum frequency_units
-{
-
-    MILLIHERTZ_FU,
-    HERTZ_FU,
-    KILOHERTZ_FU,
-    MEGAHERTZ_FU,
-
-    LIMIT_FU
-    
-} frequency_units;
-
-
-typedef enum controlled_signal_type
-{
-
-    CLEAN_CST,
-    NOISED_CST,
-    
-    LIMIT_CST
-    
-} controlled_signal_type;
-
+// ===== Scope display render data =====
 
 
 // ===== Scope render data =====
@@ -212,6 +582,7 @@ typedef struct scope_gui_basic_parameters
         Общий размер - 22 на 14 единиц (по 50 пикселей в единице)
 
         - Задник (3 части - верхняя, средняя, нижняя)
+
             - Верхняя часть - 22 на 1 единицу
             - Средняя часть - 22 на 12 единиц
             - Нижняя часть - 22 на 1 единицу
@@ -876,6 +1247,14 @@ typedef struct scope_render {
 } scope_render_ctx;
 
 
+// ===== Scope render data =====
+
+
+// =========================================================================================== SCOPE RENDERING
+
+
+// =========================================================================================== SCOPE SETTINGS CTX
+
 typedef struct scope_main_settings
 {
 
@@ -883,17 +1262,17 @@ typedef struct scope_main_settings
     scope_state current_state;                      // Текущий режим
     
     scope_render_mode current_mode;                 // Режим
-    scope_render_mode acessable_modes[3];           // Доступные режимы
+    scope_render_mode acessable_modes[3];           // Доступные режимы (для итераций при переключениях)
 
     // Текущие единицы измерения для отображения
-    signal_units current_signal_units;
+    signal_units current_signal_units;              // Всегда вольты
     time_units current_time_units;                  // Переменная времени всегда в секундах, но на рендер адекватнее выводить в другом формате
     frequency_units current_frequency_units;         // Переменная времени всегда в герцах, но на рендер адекватнее выводить в другом формате
 
-    // Сколько вольт в 1 юните
+    // Сколько вольт в 1 юните (только целые числа для ровной развертки)
     int signal_val_in_one_unit;
 
-    // Сколько времени в 1 юните
+    // Сколько времени в 1 юните (только целые числа для ровной развертки) - согласование с current_time_units
     int time_val_in_one_unit;
 
     // Количество периодов для отображения на 16 (в режиме с фикс. кол-вом)
@@ -902,39 +1281,55 @@ typedef struct scope_main_settings
 } scope_main_settings_ctx;
 
 
+// =========================================================================================== SCOPE SETTINGS CTX
+
+
+// =========================================================================================== SCOPE DATA
 
 typedef struct scope_signal_control_ctx
 {
+    
+    // ===== MAIN SIGNAL DATA =====
 
-    sin_generator_ctx* controlled_signal;                   // Контролируемый сигнал (в данной версии - только синус)
-    controlled_signal_type type_of_controlled_signal;       // Какой вид сигнала контролируем сейчас
+    sin_generator_ctx* controlled_signal;                              // Контролируемый сигнал (в данной версии - только синус)
+    controlled_signal_type type_of_controlled_signal;                  // Какой вид сигнала контролируем сейчас - КОСТЫЛЬ
 
-    scope_buffer_ctx scope_buffer_data;                     // Буфер осциллографа
+    scope_buffer_ctx scope_buffer_data;                                // Буфер осциллографа
 
-    zero_crossing_ctx zero_crossings;                       // Буфер проходов через 0 (для поиска периода и амплитуды)
+    // ===== MAIN SIGNAL DATA =====
 
-    // ==== Анализ сигнала для рескейла дисплея в моде с фикс. кол-вом периодов ====
 
-    // Текущие данные о сигнале
+    // ===== SIGNAL ANALYSIS DATA =====
 
-    float current_period_value;
-    float current_frequency_value;
+    scope_running_signal_data_ctx running_signal_characteristics;      // Runtime-характеристики значения
 
-    float current_max_signal_value;
-    float current_min_signal_value;
+    scope_measured_signal_data_ctx measured_signal_characteristics;    // Measured-характеристики значения
 
-    float amplitude_estimate;                                // Сглаживание для поиска treshold
-    int threshold_update_accumulator;                        // Защита первичного сглаживания
-    bool amplitude_initialized;
+    // ===== SIGNAL ANALYSATORS DATA =====
+
+
+    // ===== SIGNAL ANALYSATORS DATA =====
+
+    scope_realtime_filtering_ctx filter_ctx;                           // Running-filter для running_signal_characteristics
+
+    scope_realtime_peaks_ctx peaks_ctx;                                // Data peak-анализатора
+
+    wave_pattern_detector_former_ctx wave_pattern_detector_former_data;     // Data детектора полуволн
+
+    wave_pattern_detector_ctx wave_pattern_detector_data;                   // Буффер полуволн для проверки детектором паттернов / периода
+
+    // ===== SIGNAL ANALYSATORS DATA =====
 
 } scope_signal_control_ctx;
 
+// =========================================================================================== SCOPE DATA
 
-// ===== Scope =====
+
+// =========================================================================================== SCOPE MAIN STRUCT
 
 typedef struct Scope {
 
-    scope_main_settings_ctx main_settings;           // Основные настройки осциллографа (в данной версии - режим отображения и кол-во периодов для отображения в режиме с фикс. кол-вом)
+    scope_main_settings_ctx main_settings;           // Основные настройки осциллографа
 
     scope_signal_control_ctx signal_control_data;    // Данные контролируемого сигнала
 
@@ -942,11 +1337,11 @@ typedef struct Scope {
 
 } Scope;
 
+// =========================================================================================== SCOPE MAIN STRUCT
 
-// =========================================================================================== SCOPE STRUCT
 
 
-// =========================================================================================== INNER FUNCTIONS
+// =========================================================================================== SCOPE API
 
 // Инициализация осциллографа
 void scope_init(Scope* used_scope, SDL_Renderer* renderer);
@@ -955,13 +1350,10 @@ void scope_init(Scope* used_scope, SDL_Renderer* renderer);
 // Присвоение сигнала осциллографу (сеттер)
 void signal_check(Scope* used_scope, sin_generator_ctx* controlled_signal);
 
-
-// Апдейт буффера с макс. скоростью
-void scope_buffer_update(Scope* used_scope);
-
-// Анализ буфера осциллографа для получения основной информации о сигнале - частота 240 Гц
-void buffer_analysis(Scope* used_scope);
-
+// Апдейт общих характериктик системы каждый фрейм (получение
+// runtime характеристик + отдача данных детектору полуволн / детектору периода)
+// коллится без временных ограничений
+void scope_fast_update(Scope* used_scope);
 
 // Апдейт общих характериктик системы с частотой в 2-4 раза выше частоты кадров (обеспечивает
 // получение адекватной даты) - частота 60 Гц
@@ -969,7 +1361,7 @@ void buffer_analysis(Scope* used_scope);
 // записывает в кольцевой буфер
 // фиксирует time + delta_t
 // вызывает детектор событий (переход через 0)
-void scope_update(Scope* used_scope);
+void scope_slow_update(Scope* used_scope);
 
 
 // Рендер с частотой соотв. текущей частоте кадров - частота 60 Гц
@@ -984,4 +1376,4 @@ void scope_render(Scope* used_scope);
 
 void scope_destroy(Scope* used_scope);
 
-// =========================================================================================== INNER FUNCTIONS
+// =========================================================================================== SCOPE API
