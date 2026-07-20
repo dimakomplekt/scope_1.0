@@ -84,7 +84,7 @@ int SDL_app_init(SDL_app_ctx* app, int w, int h, const char* title)
         &mode
     );
     
-    printf("blend mode = %d\n", mode);
+    // printf("blend mode = %d\n", mode);
 
     app->running = 1;
     app->name = title;
@@ -98,8 +98,8 @@ int SDL_app_init(SDL_app_ctx* app, int w, int h, const char* title)
     
     signal_check(&scope_1, &Oscillator_1);
 
-    printf("\nScope signal A: .%f", scope_1.signal_control_data.controlled_signal->amplitude);
-    printf("\nScope signal F: .%f", scope_1.signal_control_data.controlled_signal->frequency);
+    // printf("\nScope signal A: .%f", scope_1.signal_control_data.controlled_signal->amplitude);
+    // printf("\nScope signal F: .%f", scope_1.signal_control_data.controlled_signal->frequency);
 
     cyrillic_console_setup();
 
@@ -125,11 +125,17 @@ void SDL_app_handle_events(SDL_app_ctx* app)
 bool cycle_start_locked_1 = false;
 bool cycle_start_locked_2 = false;
 
+
+double start_time_0;
 double start_time_1;
 double start_time_2;
 double start_time_3;
 
 double curr_time;
+
+
+double prev_call_time;
+
 
 // Апдейт апы в котором идут апдейты всех объектов
 void SDL_app_update(SDL_app_ctx* app)
@@ -141,18 +147,66 @@ void SDL_app_update(SDL_app_ctx* app)
     
     curr_time = app_timer_get_time();
 
+    
+    if (start_time_0 == 0) start_time_0 = curr_time;
     if (start_time_1 == 0) start_time_1 = curr_time;
     if (start_time_2 == 0) start_time_2 = curr_time;
 
-    // Апдейт синуса
-    sin_generator_update();
 
 
-    // Runtime scope update
-    scope_fast_update(&scope_1);
+    const double STEP_48000 = 1.0 / 48000.0;
+
+
+    if (curr_time - start_time_0 >= STEP_48000)
+    {
+
+        prev_call_time = Oscillator_1.prev_call_time;
+
+        // Апдейт синуса
+        sin_generator_update();
+
+        // Runtime scope update
+        scope_fast_update(&scope_1);
+
+
+        start_time_0 += STEP_48000;
+    }
+
+    
+    
+    // ЧЕК связности генератора и буффера
+
+    float* values_1 = sin_generator_get_clean();
+
+    printf("\n\nScope signal value from generator:\n");
+
+    for (int i = 0; i < SAMPLES_IN_STEP; i++)
+    {
+        printf("%f; ", values_1[i]);
+    }
+
+    printf("\n");
+
+
+    printf("\n\nScope signal value from scope buffer:\n");
+
+    for (int i = 0; i < SAMPLES_IN_STEP; i++)
+    {
+        printf("%f;  ", scope_1.signal_control_data.scope_buffer_data.samples[scope_1.signal_control_data.scope_buffer_data.head - SAMPLES_IN_STEP + i].value);
+    }
+
+    printf("\n");
+
+    printf("t = %.9f\n", app_timer_get_time());
+    printf("prev_t = %.9f\n", prev_call_time);
+    printf("%f\n", Oscillator_1.frequency);
+
+    
 
 
     // ==== INPUT CHECK ====
+
+    /*
 
     const double STEP_240 = 1.0 / 240.0;
 
@@ -166,6 +220,7 @@ void SDL_app_update(SDL_app_ctx* app)
 
     // ==== INPUT CHECK ====
 
+    */
 
     // ==== SLOW ANALYSIS ====
 
@@ -177,15 +232,15 @@ void SDL_app_update(SDL_app_ctx* app)
         scope_slow_update(&scope_1);
 
 
-        printf("Scope signal value: .%f \n", sin_generator_get_clean());
+        // printf("Scope signal value from generator: .%f \n", sin_generator_get_clean());
 
         if (scope_1.main_settings.current_state == ON_SS)
         {
 
-            printf("Scope signal value from buffer: .%f \n", scope_1.signal_control_data.scope_buffer_data.samples[scope_1.signal_control_data.scope_buffer_data.head - 1].value);
-            printf("\n\n\nScope signal by analysis A: .%f \n", scope_1.signal_control_data.measured_signal_characteristics.measured_max);
-            printf("Scope signal by analysis T: .%f \n", scope_1.signal_control_data.measured_signal_characteristics.measured_period);
-            printf("Scope signal by analysis F: .%f \n\n", scope_1.signal_control_data.measured_signal_characteristics.measured_frequency);
+            // printf("Scope signal value from buffer: .%f \n", scope_1.signal_control_data.scope_buffer_data.samples[scope_1.signal_control_data.scope_buffer_data.head - 1].value);
+            // printf("\n\n\nScope signal by analysis A: .%f \n", scope_1.signal_control_data.measured_signal_characteristics.measured_max);
+            // printf("Scope signal by analysis T: .%f \n", scope_1.signal_control_data.measured_signal_characteristics.measured_period);
+            // printf("Scope signal by analysis F: .%f \n\n", scope_1.signal_control_data.measured_signal_characteristics.measured_frequency);
 
         }
 
@@ -212,9 +267,9 @@ void SDL_app_render(SDL_app_ctx* app)
 
         scope_render(&scope_1);
 
-        printf("Scope signal Tpx from render: .%f", scope_1.scope_render_data.signal_render_data.points[1].x);
-        printf("Scope signal Vpx from render: .%f", scope_1.scope_render_data.signal_render_data.points[1].y);
-        printf("Scope signal show:  .%s\n", scope_1.scope_render_data.signal_render_data.points[1].show ? "true" : "false");
+        // printf("Scope signal Tpx from render: .%f", scope_1.scope_render_data.signal_render_data.points[1].x);
+        // printf("Scope signal Vpx from render: .%f", scope_1.scope_render_data.signal_render_data.points[1].y);
+        // printf("Scope signal show:  .%s\n", scope_1.scope_render_data.signal_render_data.points[1].show ? "true" : "false");
 
 
 

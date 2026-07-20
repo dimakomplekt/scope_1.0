@@ -1,8 +1,9 @@
 // scope.c
 
 
-#define TEST_MODE_1 1
-
+#define TEST_MODE_1 0 // Общий тест
+#define TEST_MODE_2 0 // Тест EMA-пайплайна
+#define TEST_MODE_3 1 // Тест MIN-MAX-пайплайна
 
 // =========================================================================================== IMPORT
 
@@ -93,7 +94,7 @@ void scope_buffer_update(Scope* used_scope);            // Получение с
 
 void runtime_data_update(Scope* used_scope);            // Апдейт runtime-характеристик
 
-void runtime_detect_peaks(Scope* used_scope);           // Обнаружение пиков
+void runtime_detect_peaks(Scope* used_scope, unsigned int curr_idx, unsigned int prev_idx);           // Обнаружение пиков
 
 // Обнаружение полуволн (внутри обнаружения пиков)
 void runtime_detect_halfwaves(Scope* used_scope, float current_value, float current_time, trend_type current_trend);
@@ -291,6 +292,8 @@ void scope_main_settings_init(Scope* used_scope)
     // No signal at the start
     used_scope->signal_control_data.controlled_signal = NULL;
 
+    if (!(used_scope->signal_control_data.prev_call_time != 0.0f)) used_scope->signal_control_data.prev_call_time = 0.0f;
+
     // ===== Сигнал ===== 
 }
 
@@ -356,8 +359,8 @@ void scope_running_signal_characteristics_init(Scope* used_scope)
     // =========================================================
     // 3. FUSION & OFFSET MANAGEMENT
     // =========================================================
-    running_data->median_part_in_offset = 0.3f;
-    running_data->mean_part_in_offset = 0.7f;
+    running_data->median_part_in_offset = 0.9f;
+    running_data->mean_part_in_offset = 0.1f;
     running_data->running_dc_offset = 0.0f;
 
 
@@ -717,68 +720,83 @@ void scope_buffer_update(Scope* used_scope)
 
     // Текущее время - точно совпадёт со временем, которое было принято на 
     // генерацию значения сигнала
-    double t = app_timer_get_time();
+    double curr_t = app_timer_get_time();
+    double prev_t = used_scope->signal_control_data.prev_call_time;
+
+    // Шаг дискретизации 
+    double delta_t = (curr_t - prev_t);
+    double sample_delta_t = delta_t / SAMPLES_IN_STEP;
+
 
     // Выбор сигнала 
-    float value = 0.0f;
+    float* value;
 
     switch (ctrl->type_of_controlled_signal)
     {
         case CLEAN_CST:
+
             value = sin_generator_get_clean();
             break;
 
+
         case NOISED_CST:
+
             value = sin_generator_get_noise();
             break;
 
+
         default:
-            value = 0.0f;
-            break;
+
+            printf("Reading error!\n");
+            return;
+
     }
 
 
     // ===== Заполнение буффера =====
-
-    int head = buffer->head;
-
-    // Предыдущее значение с зашитой от ошибки 1 шага
-    int prev = head - 1;
-    if (prev < 0)
-        prev = BUFFER_SIZE - 1;
-
-    buffer->samples[head].value = value;
-    buffer->samples[head].time = t;
-
-    if (buffer->count > 0)
+    for (int i = 0; i < SAMPLES_IN_STEP; i++)
     {
-        double dt = t - buffer->samples[prev].time;
 
-        // 1 сек условный clamp
-        if (dt < 0 || dt > 1.0) dt = 0.0;
+        int head = buffer->head;
 
-        // Первый сэмпл после прохода через кольцо, или любой другой
-        buffer->samples[head].delta_t = dt;
+        // Предыдущее значение с зашитой от ошибки 1 шага
+        int prev = head - 1;
+        if (prev < 0)
+            prev = BUFFER_SIZE - 1;
+
+
+        buffer->samples[head].value = value[i];
+        buffer->samples[head].time = prev_t + sample_delta_t * (i + 1);
+
+
+        if (buffer->count > 0)
+        {
+            // Первый сэмпл после прохода через кольцо, или любой другой
+            buffer->samples[head].delta_t = sample_delta_t;
+        }
+        else
+        {
+            // Первый сэмпл после init
+            buffer->samples[head].delta_t = 0.0;
+        }
+        
+
+        if (TEST_MODE_2) {
+
+            printf("\nЗаписали в буффер значение: %lf\n", (double)buffer->samples[head].value);
+
+        }
+
+
+        // Update ring buffer
+        buffer->head = (head + 1) % BUFFER_SIZE;
+
+        // Сдвиг буффера
+        if (buffer->count < BUFFER_SIZE) buffer->count++;
     }
-    else
-    {
-        // Первый сэмпл после init
-        buffer->samples[head].delta_t = 0.0;
-    }
-    
 
-    if (TEST_MODE_1) {
-
-        printf("Записали в буффер значение: %lf\n", (double)buffer->samples[head].value);
-
-    }
-
-
-    // Update ring buffer
-    buffer->head = (head + 1) % BUFFER_SIZE;
-
-    if (buffer->count < BUFFER_SIZE) buffer->count++;
-
+    // Сдвиг предыдущего времени вызова
+    used_scope->signal_control_data.prev_call_time = curr_t;
 }
 
 
@@ -789,163 +807,183 @@ void runtime_data_update(Scope* used_scope)
     if (buffer->count < 2) return;
 
 
-    // =========================================================
-    // 0. RAW SIGNAL
-    // =========================================================
+    // For-style signal data update
 
-    // Сигнал уже записан, head сдвинут, соответственно
-
-    int curr_idx = buffer->head - 1;
-    if (curr_idx < 0) curr_idx += BUFFER_SIZE;      // Сдвиг при проходе кольца
-
-    int prev_idx = buffer->head - 2;
-    if (prev_idx < 0) prev_idx += BUFFER_SIZE;
-
-    // Сэмплы сигнала
-    sample_t curr = buffer->samples[curr_idx];
-    sample_t prev = buffer->samples[prev_idx];
-
-    float curr_x = curr.value;
-    double curr_t = curr.time;
-    float prev_x = prev.value;
-
-
-    // =========================================================
-    // 1. STATE (Связываем с вашими структурами контекста)
-    // =========================================================
-
-    scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
-    scope_running_signal_data_ctx* running_data = &ctrl->running_signal_characteristics;
-    scope_realtime_filtering_ctx*  filter_data = &ctrl->filter_ctx;
-    scope_realtime_peaks_ctx* peaks_data = &ctrl->peaks_ctx;
-
-
-    // =========================================================
-    // 2. CENTER MODEL (running_mean / running_median / running_dc)
-    // =========================================================
-
-    // 2.1 running_mean (EMA)
-    running_data->running_mean.mean += running_data->running_mean.alpha * (curr_x - running_data->running_mean.mean);
-
-
-    if (TEST_MODE_1) {
-
-        printf("Новый mean: %lf\n", (double)running_data->running_mean.mean);
-        
-    }
-
-
-    // 2.2 RUNNING MEDIAN (robust center estimator via Sign-LMS)
-    float error = curr_x - running_data->running_median.median;
-
-    running_data->running_median.median += 
-        running_data->running_median.step * copysignf(1.0f, error);
-
-
-    if (TEST_MODE_1) {
-
-        printf("Новый median: %lf\n", (double)running_data->running_median.median);
-        
-    }
-
-
-    // 2.3 running_dc (fusion center)
-
-    running_data->running_dc_offset = (
-
-        (running_data->median_part_in_offset * running_data->running_median.median) + 
-        (running_data->mean_part_in_offset * running_data->running_mean.mean)
-        
-    );
-
-
-    if (TEST_MODE_1) {
-
-        printf("Новый offset: %lf\n", (double)running_data->running_dc_offset);
-        
-    }
-
-
-    // =========================================================
-    // 3. NOISE MODEL (Интеграция дисперсии шума)
-    // =========================================================
-
-
-        
-
-    float sigma_squad = filter_data->running_sigma_squad;
-    
-
-    float diff;
-
-    if (peaks_data->running_amplitude == FLT_MAX ||
-        isnan(peaks_data->running_amplitude) ||
-        isinf(peaks_data->running_amplitude))
+    for (int i = 0; i < SAMPLES_IN_STEP; i++)
     {
-        diff = 0.01f; // стартовый шум
-    }
-    else
-    {
-        float signal_half_amplitude = peaks_data->running_amplitude * 0.5f;
+        // =========================================================
+        // 0. RAW SIGNAL
+        // =========================================================
 
-        diff = fmaxf(signal_half_amplitude * 0.01f, 0.01f);
-    }
+        // Сигнал уже записан, head сдвинут, соответственно
 
 
-    float diff_squad = diff * diff;
+        int curr_idx = buffer->head - SAMPLES_IN_STEP + i;
+        if (curr_idx < 0) curr_idx += BUFFER_SIZE;                  // Сдвиг при проходе кольца
+
+        int prev_idx = buffer->head - SAMPLES_IN_STEP + i - 1;
+        if (prev_idx < 0) prev_idx += BUFFER_SIZE;
+
+        // Сэмплы сигнала
+        sample_t curr = buffer->samples[curr_idx];
+        sample_t prev = buffer->samples[prev_idx];
+
+        float curr_x = curr.value;
+        double curr_t = curr.time;
+        float prev_x = prev.value;
 
 
-    // Пересчёт через текущую бетту и dc-offset
+        if (TEST_MODE_3) {
 
-    sigma_squad += filter_data->running_betha * (diff_squad - sigma_squad);
-
-
-    if (isnan(sigma_squad) || isinf(sigma_squad))
-    {
-        sigma_squad = diff_squad;
-    }
-
-    if (sigma_squad < 0.0f)
-    {
-        sigma_squad = 0.0f;
-    }
+            printf("\nNEW Curr: %f\n", curr_x);
+            printf("Prev: %f\n", prev_x);
+        }
 
 
-    if (sigma_squad < 0.0f) sigma_squad = 0.0f;
 
-    filter_data->running_sigma_squad = sigma_squad;
+        // =========================================================
+        // 1. STATE (Связываем с вашими структурами контекста)
+        // =========================================================
 
-    float sigma = sqrt(sigma_squad);
+        scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
+        scope_running_signal_data_ctx* running_data = &ctrl->running_signal_characteristics;
+        scope_realtime_filtering_ctx*  filter_data = &ctrl->filter_ctx;
+        scope_realtime_peaks_ctx* peaks_data = &ctrl->peaks_ctx;
 
 
-    if (TEST_MODE_1) {
+        // =========================================================
+        // 2. CENTER MODEL (running_mean / running_median / running_dc)
+        // =========================================================
 
-        printf("Новая sigma^2: %lf\n", (double)filter_data->running_sigma_squad);
+        // 2.1 running_mean (EMA)
+        running_data->running_mean.mean += running_data->running_mean.alpha * (curr_x - running_data->running_mean.mean);
+
+
+        if (TEST_MODE_2) {
+
+            printf("Новый mean: %lf\n", (double)running_data->running_mean.mean);
+            
+        }
+
+
+        // 2.2 RUNNING MEDIAN (robust center estimator via Sign-LMS)
+        float error = curr_x - running_data->running_median.median;
+
+        running_data->running_median.median += 
+            running_data->running_median.step * copysignf(1.0f, error);
+
+
+        if (TEST_MODE_2) {
+
+            printf("Новый median: %lf\n", (double)running_data->running_median.median);
+            
+        }
+
+
+        // 2.3 running_dc (fusion center)
+
+        running_data->running_dc_offset = (
+
+            (running_data->median_part_in_offset * running_data->running_median.median) + 
+            (running_data->mean_part_in_offset * running_data->running_mean.mean)
+            
+        );
+
+
+        if (TEST_MODE_2) {
+
+            printf("Новый offset: %lf\n", (double)running_data->running_dc_offset);
+            
+        }
+
+
+        // =========================================================
+        // 3. NOISE MODEL (Интеграция дисперсии шума)
+        // =========================================================
+
+
+            
+
+        float sigma_squad = filter_data->running_sigma_squad;
         
+
+        float diff;
+
+        if (peaks_data->running_amplitude == FLT_MAX ||
+            isnan(peaks_data->running_amplitude) ||
+            isinf(peaks_data->running_amplitude))
+        {
+            diff = 0.01f; // стартовый шум
+        }
+        else
+        {
+            float signal_half_amplitude = peaks_data->running_amplitude * 0.5f;
+
+            diff = fmaxf(signal_half_amplitude * 0.01f, 0.01f);
+        }
+
+
+        float diff_squad = diff * diff;
+
+
+        // Пересчёт через текущую бетту и dc-offset
+
+        sigma_squad += filter_data->running_betha * (diff_squad - sigma_squad);
+
+
+        if (isnan(sigma_squad) || isinf(sigma_squad))
+        {
+            sigma_squad = diff_squad;
+        }
+
+        if (sigma_squad < 0.0f)
+        {
+            sigma_squad = 0.0f;
+        }
+
+
+        if (sigma_squad < 0.0f) sigma_squad = 0.0f;
+
+        filter_data->running_sigma_squad = sigma_squad;
+
+        float sigma = sqrt(sigma_squad);
+
+
+        if (TEST_MODE_2) {
+
+            printf("Новая sigma^2: %lf\n", (double)filter_data->running_sigma_squad);
+            
+        }
+
+        // =========================================================
+        // 4. DYNAMIC THRESHOLD (Расчет зоны неопределенности шума)
+        // =========================================================
+        // Используем константный множитель k_treshold (например, 3.0f)
+        filter_data->running_treshold = filter_data->k_treshold * sigma;
+
+
+        if (TEST_MODE_2) {
+
+            printf("Новый treshold: %lf\n", (double)filter_data->running_treshold);
+            
+        }
+
+        // =========================================================
+        // 5. PEAK-детектор на каждый шаг
+        // =========================================================
+        // Анализируем пики
+        // и детектируем полуволны
+        runtime_detect_peaks(used_scope, curr_idx, prev_idx);
     }
-
-    // =========================================================
-    // 4. DYNAMIC THRESHOLD (Расчет зоны неопределенности шума)
-    // =========================================================
-    // Используем константный множитель k_treshold (например, 3.0f)
-    filter_data->running_treshold = filter_data->k_treshold * sigma;
-
-
-    if (TEST_MODE_1) {
-
-        printf("Новый treshold: %lf\n", (double)filter_data->running_treshold);
-        
-    }
-    
 }
 
 
-void runtime_detect_peaks(Scope* used_scope)
+void runtime_detect_peaks(Scope* used_scope, unsigned int curr_idx, unsigned int prev_idx)
 {
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_3) {
 
-        printf("Заход в детектор пиков!\n");
+        printf("\n\nЗаход в детектор пиков!\n");
         
     }
 
@@ -968,12 +1006,6 @@ void runtime_detect_peaks(Scope* used_scope)
 
     // Сигнал уже записан, head сдвинут, соответственно
 
-    int curr_idx = buffer->head - 1;
-    if (curr_idx < 0) curr_idx += BUFFER_SIZE;      // Сдвиг при проходе кольца
-
-    int prev_idx = buffer->head - 2;
-    if (prev_idx < 0) prev_idx += BUFFER_SIZE;
-
     // Сэмплы сигнала
     sample_t curr = buffer->samples[curr_idx];
     sample_t prev = buffer->samples[prev_idx];
@@ -983,6 +1015,14 @@ void runtime_detect_peaks(Scope* used_scope)
 
     float prev_x = prev.value;
     double prev_t = prev.time;
+
+
+    if (TEST_MODE_3) {
+
+        printf("\n Curr in detector: %f\n", curr_x);
+        printf("Prev in detector: %f\n", prev_x);
+    }
+
 
 
     // =========================================================
@@ -1007,7 +1047,7 @@ void runtime_detect_peaks(Scope* used_scope)
     else if (dx > 0.0f) curr_trend = RISING_PT;
     else curr_trend = FALLING_PT;
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_3) {
 
         printf("Новый dx: %lf\n", (double)dx);
         
@@ -1046,7 +1086,7 @@ void runtime_detect_peaks(Scope* used_scope)
     else if (peaks_data->trend_confidence <= 0.0f) peaks_data->trend_confidence = 0.0f;
 
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_3) {
 
         printf("Новый trend-confidence: %lf\n", (double)peaks_data->trend_confidence);
         
@@ -1093,12 +1133,13 @@ void runtime_detect_peaks(Scope* used_scope)
 
         // Обновляем running_max только если
         // новый максимум получен при более устойчивом тренде.
-        bool curr_max_confidence_status = (peaks_data->max_confidence < peaks_data->trend_confidence); 
+        bool curr_max_confidence_status = (peaks_data->trend_confidence > 80.0f); 
 
         if ((current_max > peaks_data->max_candidate) && curr_max_confidence_status)
         {   
             // Прошлый кандидат становится максимумом
             peaks_data->running_max = peaks_data->max_candidate;
+            peaks_data->running_amplitude = fabsf(peaks_data->running_max - peaks_data->running_min);
 
             // Текущий пик становится кандидатом
             peaks_data->max_candidate = current_max;
@@ -1106,9 +1147,11 @@ void runtime_detect_peaks(Scope* used_scope)
             peaks_data->max_confidence = peaks_data->trend_confidence;
 
 
-            if (TEST_MODE_1) {
+            if (TEST_MODE_3) {
 
-                printf("Новый MAX: %lf\n", (double)peaks_data->running_max);
+                printf("running_max = %f\n", peaks_data->running_max);
+                printf("max_candidate = %f\n", peaks_data->max_candidate);
+                printf("Running amplutude = %f\n", peaks_data->running_amplitude);
                 
             }
         }
@@ -1136,19 +1179,24 @@ void runtime_detect_peaks(Scope* used_scope)
 
         // Обновляем running_min только если
         // новый минимум получен при более устойчивом тренде.
-        bool curr_min_confidence_status = (peaks_data->min_confidence < peaks_data->trend_confidence); 
+        bool curr_min_confidence_status = (peaks_data->trend_confidence > 80.0f); 
 
         if ((current_min < peaks_data->min_candidate) && curr_min_confidence_status)
         {   
             peaks_data->running_min = peaks_data->min_candidate;
             peaks_data->min_candidate = current_min;
 
+            peaks_data->running_amplitude = fabsf(peaks_data->running_max - peaks_data->running_min);
+
+
             peaks_data->min_confidence = peaks_data->trend_confidence;
 
 
-            if (TEST_MODE_1) {
+            if (TEST_MODE_3) {
 
-                printf("Новый MIN: %lf\n", (double)peaks_data->running_min);
+                printf("running_min = %f\n", peaks_data->running_min);
+                printf("min_candidate = %f\n", peaks_data->min_candidate);
+                printf("Running amplutude = %f\n", peaks_data->running_amplitude);
                 
             }
         }
@@ -1176,7 +1224,7 @@ void runtime_detect_peaks(Scope* used_scope)
     // Статус zero-cross перерехода сигнала
     bool not_noise = ((deviation > 0.5 * sigma));
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_3) {
 
         printf("Новый deviation: %lf\n", (double)deviation);
         
@@ -1205,7 +1253,7 @@ void runtime_detect_peaks(Scope* used_scope)
     // Если текущее значение не шум и у нас есть достаточно данных для начала анализа - производим действия
     // TODO: нужно ли ограничение buffer->count > 1024???
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_3) {
 
         printf("Решаем детектировать ли пик!\n");
 
@@ -1219,9 +1267,9 @@ void runtime_detect_peaks(Scope* used_scope)
     if (not_noise && buffer->count > FILTER_WARMUP_SAMPLES)
     {
 
-        if (TEST_MODE_1) {
+        if (TEST_MODE_3) {
 
-            printf("ДЕТЕКТИМ ПИК И ОБНОВЛЯЕМ ПОЛУВОЛНЫ!\n");
+            printf("Значение - не шум. ДЕТЕКТИМ ПИК И ОБНОВЛЯЕМ ПОЛУВОЛНЫ!\n");
         
         }
 
@@ -1230,7 +1278,7 @@ void runtime_detect_peaks(Scope* used_scope)
         runtime_detect_halfwaves(used_scope, curr_x, curr_t, curr_trend);
 
 
-        if (TEST_MODE_1) {
+        if (TEST_MODE_3) {
 
             printf("Новое значение в ZC анализ: %lf\n", (double)curr_x);
             
@@ -1239,6 +1287,7 @@ void runtime_detect_peaks(Scope* used_scope)
 
     peaks_data->prev_trend = curr_trend;
 }
+
 
 
 void runtime_detect_halfwaves(Scope* used_scope, float current_value, float current_time, trend_type current_trend)
@@ -1689,7 +1738,7 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, float curr
 void halfwaves_detector_accumulation(Scope* used_scope, float current_value, float current_time)
 {
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_3) {
 
         printf("Аккумуляция детектор! в ZC анализ: %lf\n", (double)current_value);
         
@@ -1770,7 +1819,7 @@ typedef enum zero_cross_fill_status
 void drop_zc_accumulation(Scope* used_scope, float current_value, float current_time)
 {
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_3) {
 
         printf("Дроп детектора!: %lf\n", (double)current_value);
         
@@ -1921,7 +1970,7 @@ void drop_zc_accumulation(Scope* used_scope, float current_value, float current_
         //    curr_halfwave->halfwave_area
         //    curr_halfwave->halfwave_smoothed_speed
 
-        if (TEST_MODE_1)
+        if (TEST_MODE_3)
         {
             printf(
 
@@ -1989,7 +2038,7 @@ void drop_zc_accumulation(Scope* used_scope, float current_value, float current_
 void add_halfwave_in_buffer(Scope* used_scope, halfwave_data_ctx new_halfwave)
 {
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_3) {
 
         printf("Полуволна добавляется в буффер!\n");
         
@@ -3191,9 +3240,6 @@ void signal_fast_analysis(Scope* used_scope)
     // Анализируем runtime-характеристики
     runtime_data_update(used_scope);
 
-    // Анализируем пики
-    // и детектируем полуволны
-    runtime_detect_peaks(used_scope);
 }
 
 
@@ -4824,6 +4870,7 @@ void scope_fast_update(Scope* used_scope)
 
     }
 
+
     // Базовые элементы GUI - Обновляются всегда
     // Почему-то норм обновы только в рантайм скорости??????????????
 
@@ -4867,6 +4914,7 @@ void scope_fast_update(Scope* used_scope)
 
 
     signal_fast_analysis(used_scope);
+
 }
 
 

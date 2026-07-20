@@ -54,8 +54,8 @@
 #define MIN_K_THRESHOLD 0.5f
 #define MAX_K_THRESHOLD 3.0f
 
-#define MIN_MEDIAN_PART 0.25
-#define MAX_MEDIAN_PART 0.75
+#define MIN_MEDIAN_PART 0.1
+#define MAX_MEDIAN_PART 0.9
 
 
 #define BETHA_STEP          0.0005f
@@ -1291,28 +1291,30 @@ typedef struct scope_signal_control_ctx
     
     // ===== MAIN SIGNAL DATA =====
 
-    sin_generator_ctx* controlled_signal;                              // Контролируемый сигнал (в данной версии - только синус)
-    controlled_signal_type type_of_controlled_signal;                  // Какой вид сигнала контролируем сейчас - КОСТЫЛЬ
+    double prev_call_time;
 
-    scope_buffer_ctx scope_buffer_data;                                // Буфер осциллографа
+    sin_generator_ctx* controlled_signal;                                   // Контролируемый сигнал (в данной версии - только синус)
+    controlled_signal_type type_of_controlled_signal;                       // Какой вид сигнала контролируем сейчас - КОСТЫЛЬ
+
+    scope_buffer_ctx scope_buffer_data;                                     // Буфер осциллографа
 
     // ===== MAIN SIGNAL DATA =====
 
 
     // ===== SIGNAL ANALYSIS DATA =====
 
-    scope_running_signal_data_ctx running_signal_characteristics;      // Runtime-характеристики значения
+    scope_running_signal_data_ctx running_signal_characteristics;           // Runtime-характеристики значения
 
-    scope_measured_signal_data_ctx measured_signal_characteristics;    // Measured-характеристики значения
-
-    // ===== SIGNAL ANALYSATORS DATA =====
-
+    scope_measured_signal_data_ctx measured_signal_characteristics;         // Measured-характеристики значения
 
     // ===== SIGNAL ANALYSATORS DATA =====
 
-    scope_realtime_filtering_ctx filter_ctx;                           // Running-filter для running_signal_characteristics
 
-    scope_realtime_peaks_ctx peaks_ctx;                                // Data peak-анализатора
+    // ===== SIGNAL ANALYSATORS DATA =====
+
+    scope_realtime_filtering_ctx filter_ctx;                                // Running-filter для running_signal_characteristics
+
+    scope_realtime_peaks_ctx peaks_ctx;                                     // Data peak-анализатора
 
     wave_pattern_detector_former_ctx wave_pattern_detector_former_data;     // Data детектора полуволн
 

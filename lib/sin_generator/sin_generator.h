@@ -20,8 +20,11 @@ typedef struct sin_generator
     float amplitude;
     float frequency;
 
-    float current_clean;
-    float current_noise;
+    double prev_call_time;
+    double prev_gen_time;
+
+    float current_clean[SAMPLES_IN_STEP];
+    float current_noise[SAMPLES_IN_STEP];
 
     int initialized;
 
@@ -39,8 +42,8 @@ void sin_generator_init(float amplitude, float frequency);
 void sin_generator_update(void);
 
 // getters
-float sin_generator_get_clean(void);
-float sin_generator_get_noise(void);
+float* sin_generator_get_clean(void);
+float* sin_generator_get_noise(void);
 
 // optional setters
 void sin_generator_set_amplitude(float a);
