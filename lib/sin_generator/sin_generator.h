@@ -20,11 +20,10 @@ typedef struct sin_generator
     float amplitude;
     float frequency;
 
-    double prev_call_time;
     double prev_gen_time;
 
-    float current_clean[SAMPLES_IN_STEP];
-    float current_noise[SAMPLES_IN_STEP];
+    float current_clean[SIM_BUFFER_SIZE];
+    float current_noise[SIM_BUFFER_SIZE];
 
     int initialized;
 

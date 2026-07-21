@@ -9,6 +9,9 @@
 
 app_timer App_timer = {0};
 
+
+simulation_timer Simulation_timer = {0};
+
 // =========================================================================================== API REALIZATION
 
 void app_timer_init(void)
@@ -44,6 +47,46 @@ double app_timer_get_time(void)
 double app_timer_get_delta(void)
 {
     return App_timer.delta_time;
+}
+
+
+
+void simulation_timer_init(void)
+{
+    if (Simulation_timer.initialized) return;
+
+    Simulation_timer.current_time = 0.0;
+    Simulation_timer.time_step = 1.0 * SIM_BUFFER_SIZE /  SIM_SAMPLE_RATE;
+
+    Simulation_timer.sample_delta_time = 1.0 / SIM_SAMPLE_RATE;
+
+
+    Simulation_timer.initialized = 1;
+}
+
+
+void simulation_timer_update(void)
+{
+    Simulation_timer.current_time += Simulation_timer.time_step;
+}
+
+
+double simulation_timer_get_time(void)
+{
+    return Simulation_timer.current_time;
+}
+
+
+
+double simulation_timer_get_time_step(void)
+{
+    return Simulation_timer.time_step;
+}
+
+
+double simulation_timer_get_sample_step(void)
+{
+    return Simulation_timer.sample_delta_time;
 }
 
 // =========================================================================================== API REALIZATION

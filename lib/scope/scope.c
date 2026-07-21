@@ -2,8 +2,8 @@
 
 
 #define TEST_MODE_1 0 // Общий тест
-#define TEST_MODE_2 0 // Тест EMA-пайплайна
-#define TEST_MODE_3 1 // Тест MIN-MAX-пайплайна
+#define TEST_MODE_2 1 // Тест EMA-пайплайна
+#define TEST_MODE_3 0 // Тест MIN-MAX-пайплайна
 
 // =========================================================================================== IMPORT
 
@@ -719,13 +719,13 @@ void scope_buffer_update(Scope* used_scope)
     
 
     // Текущее время - точно совпадёт со временем, которое было принято на 
-    // генерацию значения сигнала
-    double curr_t = app_timer_get_time();
-    double prev_t = used_scope->signal_control_data.prev_call_time;
+    // генерацию значения сигнала - смотрим в "прошлое"
+    double curr_t = simulation_timer_get_time() - simulation_timer_get_time_step();
+
 
     // Шаг дискретизации 
-    double delta_t = (curr_t - prev_t);
-    double sample_delta_t = delta_t / SAMPLES_IN_STEP;
+    double delta_t = simulation_timer_get_time_step();
+    double sample_delta_t = simulation_timer_get_sample_step();
 
 
     // Выбор сигнала 
@@ -754,7 +754,7 @@ void scope_buffer_update(Scope* used_scope)
 
 
     // ===== Заполнение буффера =====
-    for (int i = 0; i < SAMPLES_IN_STEP; i++)
+    for (int i = 0; i < SIM_BUFFER_SIZE; i++)
     {
 
         int head = buffer->head;
@@ -766,7 +766,7 @@ void scope_buffer_update(Scope* used_scope)
 
 
         buffer->samples[head].value = value[i];
-        buffer->samples[head].time = prev_t + sample_delta_t * (i + 1);
+        buffer->samples[head].time = curr_t + sample_delta_t * (i + 1);
 
 
         if (buffer->count > 0)
@@ -795,8 +795,9 @@ void scope_buffer_update(Scope* used_scope)
         if (buffer->count < BUFFER_SIZE) buffer->count++;
     }
 
+    
     // Сдвиг предыдущего времени вызова
-    used_scope->signal_control_data.prev_call_time = curr_t;
+    used_scope->signal_control_data.prev_call_time += simulation_timer_get_time_step();
 }
 
 
@@ -809,7 +810,7 @@ void runtime_data_update(Scope* used_scope)
 
     // For-style signal data update
 
-    for (int i = 0; i < SAMPLES_IN_STEP; i++)
+    for (int i = 0; i < SIM_BUFFER_SIZE; i++)
     {
         // =========================================================
         // 0. RAW SIGNAL
@@ -818,10 +819,10 @@ void runtime_data_update(Scope* used_scope)
         // Сигнал уже записан, head сдвинут, соответственно
 
 
-        int curr_idx = buffer->head - SAMPLES_IN_STEP + i;
+        int curr_idx = buffer->head - SIM_BUFFER_SIZE + i;
         if (curr_idx < 0) curr_idx += BUFFER_SIZE;                  // Сдвиг при проходе кольца
 
-        int prev_idx = buffer->head - SAMPLES_IN_STEP + i - 1;
+        int prev_idx = buffer->head - SIM_BUFFER_SIZE + i - 1;
         if (prev_idx < 0) prev_idx += BUFFER_SIZE;
 
         // Сэмплы сигнала

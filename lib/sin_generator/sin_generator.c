@@ -6,6 +6,8 @@
 #include <math.h>
 #include <stdlib.h>
 
+#include <stdio.h>
+
 // =========================================================================================== IMPORT
 
 
@@ -27,7 +29,6 @@ void sin_generator_init(float amplitude, float frequency)
     Oscillator_1.frequency = frequency;
     Oscillator_1.initialized = 1;
 
-    Oscillator_1.prev_call_time = 0.0f;
 
     Oscillator_1.prev_gen_time = 0.0f;
 }
@@ -35,14 +36,14 @@ void sin_generator_init(float amplitude, float frequency)
 
 void sin_generator_update(void)
 {
-    double curr_time = app_timer_get_time();
+    // Смотрим в "прошлое", относительно текущего тика симуляции
+    double curr_time = simulation_timer_get_time() - simulation_timer_get_time_step();
 
     // CLEAN SIGNAL
-    double dt =
-            (curr_time - Oscillator_1.prev_call_time) /
-            (double)SAMPLES_IN_STEP;
+    double dt = simulation_timer_get_sample_step();
 
-    for (int i = 0; i < SAMPLES_IN_STEP; i++)
+
+    for (int i = 0; i < SIM_BUFFER_SIZE; i++)
     {
         double t =
 
@@ -66,6 +67,12 @@ void sin_generator_update(void)
 
         Oscillator_1.current_clean[i] = clean;
 
+        
+        // if (i < 5)
+        // {
+        // printf("\n%d  t=%f  clean=%f\n", i, t, clean);
+        // }
+
 
         // NOISE SIGNAL (простая модель шума)
         // Генерация симметричного белого шума:
@@ -80,8 +87,9 @@ void sin_generator_update(void)
         Oscillator_1.current_noise[i] = clean + noise;
     }
 
-    Oscillator_1.prev_call_time = curr_time;
-    Oscillator_1.prev_gen_time += (SAMPLES_IN_STEP) * dt; 
+
+    Oscillator_1.prev_gen_time += simulation_timer_get_time_step(); 
+
 }
 
 
