@@ -211,18 +211,23 @@ void SDL_app_update(SDL_app_ctx* app)
         printf("\n");
 
 
-        printf("\n\nScope signal value from scope buffer:\n");
-
-        for (int i = 0; i < SIM_BUFFER_SIZE; i++)
+        if (scope_1.signal_control_data.scope_buffer_data.count >= SIM_BUFFER_SIZE)
         {
-            printf("%f;  ", scope_1.signal_control_data.scope_buffer_data.samples[scope_1.signal_control_data.scope_buffer_data.head - SIM_BUFFER_SIZE + i].value);
+            printf("\n\nScope signal value from scope buffer:\n");
+
+            for (int i = 0; i < SIM_BUFFER_SIZE; i++)
+            {
+                printf("%f;  ", scope_1.signal_control_data.scope_buffer_data.samples[scope_1.signal_control_data.scope_buffer_data.head - SIM_BUFFER_SIZE + i].value);
+            }
+
+            printf("\n");
         }
 
-        printf("\n");
 
         printf("t = %.9f\n", app_timer_get_time());
         printf("prev_t = %.9f\n", prev_call_time);
         printf("%f\n", Oscillator_1.frequency);
+
     }
     
 

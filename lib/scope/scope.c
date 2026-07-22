@@ -2,8 +2,10 @@
 
 
 #define TEST_MODE_1 0 // Общий тест
-#define TEST_MODE_2 1 // Тест EMA-пайплайна
+#define TEST_MODE_2 0 // Тест EMA-пайплайна
 #define TEST_MODE_3 0 // Тест MIN-MAX-пайплайна
+#define TEST_MODE_4 0 // Тест zc-детектор пайплайна
+#define TEST_MODE_5 0 // Тест pattern-детектор пайплайна
 
 // =========================================================================================== IMPORT
 
@@ -94,7 +96,7 @@ void scope_buffer_update(Scope* used_scope);            // Получение с
 
 void runtime_data_update(Scope* used_scope);            // Апдейт runtime-характеристик
 
-void runtime_detect_peaks(Scope* used_scope, unsigned int curr_idx, unsigned int prev_idx);           // Обнаружение пиков
+void runtime_detect_trends(Scope* used_scope, unsigned int curr_idx, unsigned int prev_idx);           // Обнаружение пиков
 
 // Обнаружение полуволн (внутри обнаружения пиков)
 void runtime_detect_halfwaves(Scope* used_scope, float current_value, float current_time, trend_type current_trend);
@@ -801,6 +803,7 @@ void scope_buffer_update(Scope* used_scope)
 }
 
 
+
 void runtime_data_update(Scope* used_scope)
 {
     scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
@@ -974,12 +977,12 @@ void runtime_data_update(Scope* used_scope)
         // =========================================================
         // Анализируем пики
         // и детектируем полуволны
-        runtime_detect_peaks(used_scope, curr_idx, prev_idx);
+        runtime_detect_trends(used_scope, curr_idx, prev_idx);
     }
 }
 
 
-void runtime_detect_peaks(Scope* used_scope, unsigned int curr_idx, unsigned int prev_idx)
+void runtime_detect_trends(Scope* used_scope, unsigned int curr_idx, unsigned int prev_idx)
 {
 
     if (TEST_MODE_3) {
@@ -1115,9 +1118,27 @@ void runtime_detect_peaks(Scope* used_scope, unsigned int curr_idx, unsigned int
     
     */
 
+
+    if (TEST_MODE_3) {
+
+        printf("\n\n Чек экстремумов. Текущие значения: \n");
+
+        printf("running_max = %f\n", peaks_data->running_max);
+        printf("max_candidate = %f\n", peaks_data->max_candidate);
+        
+        printf("running_min = %f\n", peaks_data->running_min);
+        printf("min_candidate = %f\n", peaks_data->min_candidate);
+
+        printf("Running amplutude = %f\n", peaks_data->running_amplitude);
+        
+    }
+
     // Новое значение - новый пик
     if (peak_trend_status)
     {
+        // 1st step error handle
+        if (peaks_data->running_max == -FLT_MAX) peaks_data->running_max = curr_x;
+
         // Прошлый кандидат становится пиком
         peaks_data->last_peak = peaks_data->peak_candidate;
 
@@ -1136,7 +1157,7 @@ void runtime_detect_peaks(Scope* used_scope, unsigned int curr_idx, unsigned int
         // новый максимум получен при более устойчивом тренде.
         bool curr_max_confidence_status = (peaks_data->trend_confidence > 80.0f); 
 
-        if ((current_max > peaks_data->max_candidate) && curr_max_confidence_status)
+        if ((current_max >= peaks_data->max_candidate) && curr_max_confidence_status)
         {   
             // Прошлый кандидат становится максимумом
             peaks_data->running_max = peaks_data->max_candidate;
@@ -1161,6 +1182,10 @@ void runtime_detect_peaks(Scope* used_scope, unsigned int curr_idx, unsigned int
     // Новое значение - новая яма
     else if (trough_trend_status)
     {
+        // 1st step error handle
+        if (peaks_data->running_min == FLT_MAX) peaks_data->running_min = curr_x;
+        
+
         peaks_data->last_trough = peaks_data->trough_candidate;
         peaks_data->trough_candidate = prev_x; 
 
@@ -1182,7 +1207,7 @@ void runtime_detect_peaks(Scope* used_scope, unsigned int curr_idx, unsigned int
         // новый минимум получен при более устойчивом тренде.
         bool curr_min_confidence_status = (peaks_data->trend_confidence > 80.0f); 
 
-        if ((current_min < peaks_data->min_candidate) && curr_min_confidence_status)
+        if ((current_min <= peaks_data->min_candidate) && curr_min_confidence_status)
         {   
             peaks_data->running_min = peaks_data->min_candidate;
             peaks_data->min_candidate = current_min;
@@ -1268,22 +1293,16 @@ void runtime_detect_peaks(Scope* used_scope, unsigned int curr_idx, unsigned int
     if (not_noise && buffer->count > FILTER_WARMUP_SAMPLES)
     {
 
-        if (TEST_MODE_3) {
+        if (TEST_MODE_4) {
 
-            printf("Значение - не шум. ДЕТЕКТИМ ПИК И ОБНОВЛЯЕМ ПОЛУВОЛНЫ!\n");
-        
+            printf("Значение - не шум. ДЕТЕКТИМ ZC И ОБНОВЛЯЕМ ПОЛУВОЛНЫ!\n");
+            printf("Новое значение в ZC анализ: %lf\n", (double)curr_x);
+
         }
-
-
+        
         // Helper-функция по детекции zero-cross и заполнению буффера
         runtime_detect_halfwaves(used_scope, curr_x, curr_t, curr_trend);
 
-
-        if (TEST_MODE_3) {
-
-            printf("Новое значение в ZC анализ: %lf\n", (double)curr_x);
-            
-        }
     }
 
     peaks_data->prev_trend = curr_trend;
@@ -1332,14 +1351,14 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, float curr
     float noised_zc_pp = zc_p + noise_value;
 
 
-    if (TEST_MODE_1)
+    if (TEST_MODE_4)
     {
         printf(
 
-            "\n\nDATA x=%8.4f  dc=%8.4f  thr=%8.4f  "
-            "zc-=%8.4f  zc+=%8.4f  "
-            "nz_mm=%8.4f  nz_mp=%8.4f  "
-            "nz_pm=%8.4f  nz_pp=%8.4f\n\n\n",
+            "\n\nDATA x= %8.4f  dc= %8.4f  thr= %8.4f  "
+            "zc- =%8.4f  zc+ =%8.4f  "
+            "nz_mm =%8.4f  nz_mp =%8.4f  "
+            "nz_pm =%8.4f  nz_pp =%8.4f\n\n\n",
             current_value,
             curr_dc_offset,
             curr_treshold,
@@ -1739,7 +1758,7 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, float curr
 void halfwaves_detector_accumulation(Scope* used_scope, float current_value, float current_time)
 {
 
-    if (TEST_MODE_3) {
+    if (TEST_MODE_4) {
 
         printf("Аккумуляция детектор! в ZC анализ: %lf\n", (double)current_value);
         
@@ -1789,11 +1808,20 @@ void halfwaves_detector_accumulation(Scope* used_scope, float current_value, flo
     wpdf_ctx->curr_halfwave.halfwave_smoothed_speed = (wpdf_ctx->curr_halfwave.halfwave_smoothed_speed + fabsf(velocity)) / 2;
 
     
-    // Peaks
-    
-    wpdf_ctx->curr_halfwave.peak_value = fmax(wpdf_ctx->curr_halfwave.peak_value, curr_x);
+    // Peaks with protection
 
-    wpdf_ctx->curr_halfwave.trough_value = fmin(wpdf_ctx->curr_halfwave.trough_value, curr_x);
+    if (wpdf_ctx->curr_halfwave.peak_value != -FLT_MAX)
+    {
+        wpdf_ctx->curr_halfwave.peak_value = fmaxf(wpdf_ctx->curr_halfwave.peak_value, curr_x);
+    }
+    else wpdf_ctx->curr_halfwave.peak_value = curr_x;
+    
+    
+    if (wpdf_ctx->curr_halfwave.peak_value != FLT_MAX)
+    {
+        wpdf_ctx->curr_halfwave.trough_value = fminf(wpdf_ctx->curr_halfwave.trough_value, curr_x);
+    }
+    else wpdf_ctx->curr_halfwave.trough_value = curr_x;
 
 
     // Обновление чистых значений после последней аккумуляции, 
@@ -1820,7 +1848,7 @@ typedef enum zero_cross_fill_status
 void drop_zc_accumulation(Scope* used_scope, float current_value, float current_time)
 {
 
-    if (TEST_MODE_3) {
+    if (TEST_MODE_4) {
 
         printf("Дроп детектора!: %lf\n", (double)current_value);
         
@@ -1971,25 +1999,30 @@ void drop_zc_accumulation(Scope* used_scope, float current_value, float current_
         //    curr_halfwave->halfwave_area
         //    curr_halfwave->halfwave_smoothed_speed
 
-        if (TEST_MODE_3)
-        {
-            printf(
+            if (TEST_MODE_5)
+            {
 
-        "\nSEND:\n"
-                "peak=%f\n"
-                "trough=%f\n"
-                "time=%f\n"
-                "area=%f\n"
-                "speed=%f\n",
-                curr_halfwave->peak_value,
-                curr_halfwave->trough_value,
-                curr_halfwave->halfwave_full_time,
-                curr_halfwave->halfwave_area,
-                curr_halfwave->halfwave_smoothed_speed
+                wave_pattern_detector_ctx* wpd_ctx = &used_scope->signal_control_data.wave_pattern_detector_data;
 
-            );
+                printf(
 
-        }
+            "\nSEND:\n"
+                    "peak =%f\n"
+                    "trough =%f\n"
+                    "time =%f\n"
+                    "area =%f\n"
+                    "speed =%f\n"
+                    "curr halfwaves count = %u\n",
+                    curr_halfwave->peak_value,
+                    curr_halfwave->trough_value,
+                    curr_halfwave->halfwave_full_time,
+                    curr_halfwave->halfwave_area,
+                    curr_halfwave->halfwave_smoothed_speed,
+                    wpd_ctx->count
+                );
+
+            }
+
 
         add_halfwave_in_buffer(used_scope, wpdf_ctx->curr_halfwave);
 
@@ -2039,11 +2072,25 @@ void drop_zc_accumulation(Scope* used_scope, float current_value, float current_
 void add_halfwave_in_buffer(Scope* used_scope, halfwave_data_ctx new_halfwave)
 {
 
-    if (TEST_MODE_3) {
+    if (TEST_MODE_4) {
 
-        printf("Полуволна добавляется в буффер!\n");
+        printf("\n\nПолуволна добавляется в буффер!\n\n");
         
     }
+
+    // First step protection
+    if (new_halfwave.peak_value == -FLT_MAX || new_halfwave.trough_value == FLT_MAX)
+    {
+        
+        if (TEST_MODE_4) {
+
+            printf("\n\nПопытка неинициализированной передачи!\n\n");
+        
+        }
+
+        return;
+    }
+
 
 
     wave_pattern_detector_ctx* buffer = &used_scope->signal_control_data.wave_pattern_detector_data;
@@ -2065,7 +2112,7 @@ void add_halfwave_in_buffer(Scope* used_scope, halfwave_data_ctx new_halfwave)
 
 void detect_pattern_and_period(Scope* used_scope)
 {
-    if (TEST_MODE_1) {
+    if (TEST_MODE_5) {
 
         printf("Поиск паттерна!\n");
         
@@ -2074,9 +2121,9 @@ void detect_pattern_and_period(Scope* used_scope)
     wave_pattern_detector_ctx* buffer = &used_scope->signal_control_data.wave_pattern_detector_data;
 
     // Недостаточно данных или нечетное количество полуволн
-    if (buffer->count % 2 != 0 || (buffer->count < PERIOD_DETECTOR_BUFFER_SIZE / 8)) 
+    if (buffer->count % 2 != 0 && (buffer->count < PERIOD_DETECTOR_BUFFER_SIZE / 16)) 
     {
-        if (TEST_MODE_1) {
+        if (TEST_MODE_5) {
 
             printf("Набрали в буффер: %u\n", buffer->count);
         
@@ -2088,16 +2135,17 @@ void detect_pattern_and_period(Scope* used_scope)
     // Определили паттерн
     int pattern_steps = detect_pattern(used_scope);
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_5) {
 
         printf("Шагов паттерна: %u\n", pattern_steps);
         
     }
 
+
     if (pattern_steps < 2)
     {
 
-        if (TEST_MODE_1) {
+        if (TEST_MODE_5) {
 
             printf("Паттерн не обнаружен!\n");
         
@@ -2119,9 +2167,9 @@ void detect_pattern_and_period(Scope* used_scope)
 int detect_pattern(Scope* used_scope)
 {
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_5) {
 
-        printf("Поиск паттерна начат!!!\n");
+        printf("\n\nПоиск паттерна начат!!!\n");
         
     }
 
@@ -2170,7 +2218,7 @@ int detect_pattern(Scope* used_scope)
 
 
 
-    if (TEST_MODE_1)
+    if (TEST_MODE_5)
     {
 
         printf("\nWhole buffer: \n\n");
@@ -2204,7 +2252,7 @@ int detect_pattern(Scope* used_scope)
         pattern_elements[i] = current_pattern_element_number;
 
 
-        if (TEST_MODE_1)
+        if (TEST_MODE_5)
         {
 
             printf("\nТекущая полуволна: ");
@@ -2229,7 +2277,7 @@ int detect_pattern(Scope* used_scope)
             float curr_waves_distance = halfwave_distance(&curr_halfwaves_for_detection[i], &curr_halfwaves_for_detection[j]);
 
 
-            if (TEST_MODE_1) {
+            if (TEST_MODE_4) {
 
                 printf("Найденная дистанция полуволн: %f\n", curr_waves_distance);
                 
@@ -2251,7 +2299,8 @@ int detect_pattern(Scope* used_scope)
 
     // ===== Подготовка шаблона =====
 
-    if (TEST_MODE_1) {
+
+    if (TEST_MODE_5) {
 
         printf("\nТекущий шаблон: ");
 
@@ -2264,124 +2313,162 @@ int detect_pattern(Scope* used_scope)
     }
 
 
-    // ===== Анализ шаблона =====
 
     // =========================================================
     // Pattern detection
     //
-    // Имеем последовательность элементов:
+    // После классификации полуволн имеем последовательность
+    // элементов, например:
     //
     //      1 2 1 2 3 2 1 2 1 2 3 2
     //
-    // которая была получена после сравнения полуволн.
+    // Требуется определить длину фундаментального периода.
     //
-    // Требуется найти самый длинный повторяющийся шаблон.
+    // Идея:
     //
-    // Для этого:
+    //      Для каждой возможной длины периода L:
     //
-    //      1. Перебираем возможную длину шаблона L
-    //         от максимально возможной до минимальной.
+    //          L = 2, 3, 4, ... pattern_size - 1
     //
-    //      2. Для каждой L проверяем все возможные начала
-    //         шаблона (offset).
+    //      сравниваем каждый элемент
     //
-    //      3. Сравниваем:
+    //          pattern[i]
     //
-    //              [offset ........ offset+L)
+    //      с элементом
     //
-    //                      и
+    //          pattern[i + L]
     //
-    //              [offset+L .... offset+2L)
+    //      Благодаря удвоенному буферу
     //
-    //         Если они полностью совпадают,
-    //         значит найден повторяющийся шаблон.
+    //          ABCDE -> ABCDEABCDE
     //
-    // Буфер заранее удвоен:
+    //      можно спокойно обращаться к
     //
-    //      ABCDE -> ABCDEABCDE
+    //          pattern[i + L]
     //
-    // поэтому никакой обработки кольцевого перехода
-    // здесь уже не требуется.
+    //      без обработки перехода через конец.
     //
-    // Возвращается максимально длинный найденный шаблон.
+    // Для каждого L вычисляется качество совпадения:
+    //
+    //      score = совпавшие элементы / все сравнения
+    //
+    // После проверки всех L:
+    //
+    //      1. выбираем период с максимальным score.
+    //
+    //      2. если несколько периодов имеют одинаковый score,
+    //         выбираем минимальный.
+    //
+    // Это позволяет:
+    //
+    //      121212121212
+    //
+    // вернуть период 2,
+    // а не 6 или 4.
     //
     // =========================================================
 
-    int best_pattern_len = 0;
-
     int pattern_size = buffer->count;
 
+    int best_pattern_len = 0;
+    float best_score = -1.0f;
 
-    if (TEST_MODE_1) {
-
-        printf("Максимальная длина паттерна: %f\n: ", buffer->count);
-        
+    if (TEST_MODE_5)
+    {
+        printf("Максимальная длина паттерна: %u\n", pattern_size);
     }
 
-
-    // Максимальная возможная длина периода.
-    //
-    // Период обязан повториться минимум два раза,
-    // поэтому длиннее половины буфера быть не может.
-
-    for (int L = pattern_size / 2; L >= 2; L--)
+    // Если делать <=, то всегда будем получать 1.0 для массива размером count, 
+    // т.к. вторая половина - копия первой
+    for (int L = 2; L < pattern_size; L++)
     {
-        // Проверяем все возможные положения начала шаблона.
+        int equal_elements = 0;
+        int compared_elements = 0;
+
+        // Сравниваем весь буфер.
         //
-        // Благодаря двойному буферу можем спокойно
-        // двигаться до конца первого буфера.
+        // Например, если
+        //
+        //      L = 3
+        //
+        // то проверяются пары
+        //
+        //      0 ↔ 3
+        //      1 ↔ 4
+        //      2 ↔ 5
+        //      ...
+        //
+        // Если элементы совпали,
+        // увеличиваем счётчик совпадений.
 
-        for (int offset = 0; offset < pattern_size; offset++)
+        for (int i = 0; i < pattern_size; i++)
         {
-            bool pattern_equal = true;
+            compared_elements++;
 
-            // Сравнение двух подряд идущих блоков длиной L.
-            //
-            //      offset
-            //         │
-            //         ▼
-            //
-            // 1 2 1 2 3 1 2 1 2 3
-            // └───────┘└───────┘
-            //     block A   block B
-
-            for (int i = 0; i < L; i++)
+            if (pattern_elements[i] ==
+                pattern_elements[i + L])
             {
-                if (pattern_elements[offset + i] !=
-                    pattern_elements[offset + L + i])
-                {
-                    pattern_equal = false;
-                    break;
-                }
+                equal_elements++;
+            }
+        }
+
+        float score =
+            (float)equal_elements /
+            (float)compared_elements;
+
+
+        if (TEST_MODE_5)
+        {
+            printf(
+                "L=%2d  score=%f (%d/%d)\n",
+                L,
+                score,
+                equal_elements,
+                compared_elements
+            );
+        }
+
+        // Нашли более качественный период.
+
+        if (score > best_score)
+        {
+            best_score = score;
+            best_pattern_len = L;
+
+
+            if (TEST_MODE_5)
+            {
+                printf("\nНовый лучший период!\n");
             }
 
-            // Если найдено полное совпадение,
-            // значит найден период длиной L.
-            //
-            // Так как перебор идёт сверху вниз,
-            // это автоматически период (максимальный паттерн с повтором).
 
-            if (pattern_equal)
+            // Сразу заканчиваем поиск при большой уверенности
+            if (score >= 0.999999f)
             {
                 best_pattern_len = L;
-
-                // Допустимо
-                goto pattern_found;
+                best_score = score;
+                break;
             }
+        }
+
+        // Если качество одинаковое,
+        // выбираем минимальный период.
+
+        else if (fabsf(score - best_score) < 1e-6f &&
+                L < best_pattern_len)
+        {
+            best_pattern_len = L;
         }
     }
 
-    pattern_found:
-
-    if (TEST_MODE_1) {
-
-        printf("Найденная длина паттерна: %f\n: ", best_pattern_len);
-        
+    if (TEST_MODE_5)
+    {
+        printf("\n");
+        printf("Лучший период = %d\n", best_pattern_len);
+        printf("Качество      = %f\n", best_score);
     }
 
-
     return best_pattern_len;
-
 
     // ===== Анализ шаблона =====
 
@@ -2390,7 +2477,7 @@ int detect_pattern(Scope* used_scope)
 
 float detect_period(Scope* used_scope, int pattern_steps)
 {
-    if (TEST_MODE_1) {
+    if (TEST_MODE_5) {
 
         printf("Поиск периода!\n");
         
@@ -2405,7 +2492,7 @@ float detect_period(Scope* used_scope, int pattern_steps)
     int end_halfwave_idx = pattern_steps - 1;
 
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_4) {
 
         printf("count=%d\n", buffer->count);
         printf("pattern=%d\n", pattern_steps);
@@ -2440,7 +2527,7 @@ float detect_period(Scope* used_scope, int pattern_steps)
                 buffer->halfwaves_for_detection[end_halfwave_idx].end_time -
                 buffer->halfwaves_for_detection[start_halfwave_idx].start_time;
 
-                if (TEST_MODE_1) {
+                if (TEST_MODE_5) {
 
                     printf("Новая сумма периодов: .%f\n", summ_period);
                     
@@ -2477,7 +2564,7 @@ float detect_period(Scope* used_scope, int pattern_steps)
     }
 
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_5) {
 
         printf("Найденная сумма периодов: .%f\n", summ_period);
         printf("Найденный период: .%f\n", summ_period / (float)counter);
@@ -2579,8 +2666,9 @@ float halfwave_distance(halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwa
     // Чем ближе результат к нулю, тем более похожи полуволны.
     // Вес амплитуды снижен, так как для распознавания паттернов
     // важнее форма, чем абсолютный уровень сигнала.
-
-    if (TEST_MODE_1)
+    
+    /*
+    if (TEST_MODE_5)
     {
 
         printf(
@@ -2603,7 +2691,7 @@ float halfwave_distance(halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwa
 
         );
     }
-
+    */
 
     return total;
 }
@@ -2638,7 +2726,7 @@ int compare_float(const void* a, const void* b)
 void measured_data_update(Scope* used_scope)
 {
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_5) {
 
         printf("Обновление measured!\n");
         
@@ -2955,7 +3043,7 @@ void measured_data_update(Scope* used_scope)
 void renew_filter(Scope* used_scope)
 {
 
-    if (TEST_MODE_1) {
+    if (TEST_MODE_5) {
 
         printf("Обновление фильтра!\n");
         
@@ -3261,6 +3349,7 @@ void signal_slow_analysis(Scope* used_scope)
         printf("Запустили медленный анализ!\n");
 
     }
+
 
     detect_pattern_and_period(used_scope);      // Анализ буффера полуволн для получение паттерна и расчёта периода
 
@@ -4318,6 +4407,8 @@ void scope_gui_renew(Scope* used_scope)
 
 void scope_screens_gui_renew_by_signal_data(Scope* used_scope)
 {
+
+
     // Апдейт структуры скрина, исходя из флагов состояния осциллографа.
 
     /*
@@ -4408,6 +4499,13 @@ void scope_screens_gui_renew_by_signal_data(Scope* used_scope)
     scope_main_settings_ctx* ms = &used_scope->main_settings;
 
 
+
+    if (signal->measured_signal_characteristics.measured_max == -FLT_MAX ||
+    signal->measured_signal_characteristics.measured_min == FLT_MAX) 
+    
+        return;
+
+
     // =========================================================
     // 1. Нормализация значений (UI слой)
     // =========================================================
@@ -4423,6 +4521,7 @@ void scope_screens_gui_renew_by_signal_data(Scope* used_scope)
     float time_scale = (float)ms->time_val_in_one_unit;
 
     const char* volt_unit;
+
     float max_v = format_voltage(signal->measured_signal_characteristics.measured_max, &volt_unit);
 
     const char* amp_unit;
@@ -5375,10 +5474,11 @@ void scope_render(Scope* used_scope)
                             
         );
 
-        /*
-            // Обновляем графику под рендер (даже для первых точек)
-            scope_screens_gui_renew_by_signal_data(used_scope);
+        
+        // Обновляем графику под рендер (даже для первых точек)
+        scope_screens_gui_renew_by_signal_data(used_scope);
 
+        /*
             // Заполняемся точками
             signal_render_ctx* signal;
 

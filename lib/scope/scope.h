@@ -140,7 +140,6 @@ typedef enum controlled_signal_type
 } controlled_signal_type;
 
 
-
 // =========================================================================================== SCOPE MAIN SETTINGS
 
 
