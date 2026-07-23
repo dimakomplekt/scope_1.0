@@ -1,11 +1,13 @@
 // scope.c
 
-
+#define TEST_MODE_0 0 // Обнуление при on-off
 #define TEST_MODE_1 0 // Общий тест
 #define TEST_MODE_2 0 // Тест EMA-пайплайна
 #define TEST_MODE_3 0 // Тест MIN-MAX-пайплайна
 #define TEST_MODE_4 0 // Тест zc-детектор пайплайна
 #define TEST_MODE_5 0 // Тест pattern-детектор пайплайна
+#define TEST_MODE_6 1 // Новый запуск анализа после on-off
+
 
 // =========================================================================================== IMPORT
 
@@ -294,7 +296,12 @@ void scope_main_settings_init(Scope* used_scope)
     // No signal at the start
     used_scope->signal_control_data.controlled_signal = NULL;
 
-    if (!(used_scope->signal_control_data.prev_call_time != 0.0f)) used_scope->signal_control_data.prev_call_time = 0.0f;
+    // Не первый вызов (вкл - выкл)
+    if (used_scope->signal_control_data.prev_call_time != 0.0f) 
+        used_scope->signal_control_data.prev_call_time = simulation_timer_get_time() - simulation_timer_get_time_step();
+
+    else used_scope->signal_control_data.prev_call_time = 0.0f;
+
 
     // ===== Сигнал ===== 
 }
@@ -305,6 +312,7 @@ void scope_signal_buffer_init(Scope* used_scope)
     scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
 
     memset(buffer->samples, 0, sizeof(buffer->samples));
+
 
     buffer->head = 0;
     buffer->count = 0;
@@ -387,6 +395,8 @@ void scope_measured_signal_characteristics_init(Scope* used_scope)
     measured_data->measured_max = -FLT_MAX;
     measured_data->measured_min = FLT_MAX;
 
+    measured_data->measured_amplitude = 0.0f;
+
     measured_data->measured_dc_offset = 0.0f;
 }
 
@@ -422,7 +432,7 @@ void scope_filter_init(Scope* used_scope)
     filter->k_treshold = 1.5f;
     
     // Рассчитываем стартовый порог сразу при инициализации
-    filter->running_treshold = filter->k_treshold * filter->running_sigma_squad;
+    filter->running_treshold = filter->k_treshold * sqrtf(filter->running_sigma_squad);
 }
 
 
@@ -451,7 +461,7 @@ void scope_peaks_ctx_init(Scope* used_scope)
     peaks_ctx->running_max = -FLT_MAX;          // Текущее максимальное значение
     peaks_ctx->running_min = FLT_MAX;           // Текущее минимальное значение
 
-    peaks_ctx->running_amplitude = FLT_MAX;     // Текущая амплитуда
+    peaks_ctx->running_amplitude = 0.0f;     // Текущая амплитуда
 
 }
 
@@ -506,7 +516,7 @@ void scope_wave_pattern_detector_init(Scope* used_scope)
     wpd_ctx->count = 0;
 
 
-    for (int i = 0; i == PERIOD_DETECTOR_BUFFER_SIZE; i++)
+    for (int i = 0; i < PERIOD_DETECTOR_BUFFER_SIZE; i++)
     {
         wpd_ctx->halfwaves_for_detection[i].halfwave_type = STATIC_PT;
         wpd_ctx->halfwaves_for_detection[i].start_time = 0.0f;
@@ -608,6 +618,7 @@ void scope_main_settings_clear(Scope* used_scope)
 {
     // ===== Инициализация основных настроек ===== 
 
+    used_scope->main_settings.current_state = OFF_SS;
     used_scope->main_settings.current_mode = SCOPE_MODE_FIXED_TIME_STEP_SRM;            // Базово - фикс
     
     used_scope->main_settings.acessable_modes[0] = SCOPE_MODE_FIXED_TIME_STEP_SRM;
@@ -624,13 +635,14 @@ void scope_main_settings_clear(Scope* used_scope)
     
     // ===== Инициализация основных настроек ===== 
 
+    // Не первый вызов (вкл - выкл)
+    if (used_scope->signal_control_data.prev_call_time != 0.0f) 
+        used_scope->signal_control_data.prev_call_time = simulation_timer_get_time() - simulation_timer_get_time_step();
 
-    // ===== Сигнал ===== 
+    else used_scope->signal_control_data.prev_call_time = 0.0f;
 
-    // No signal at the start
-    used_scope->signal_control_data.controlled_signal = NULL;
 
-    // ===== Сигнал ===== 
+    // ===== Инициализация основных настроек ===== 
 }
 
 
@@ -913,7 +925,7 @@ void runtime_data_update(Scope* used_scope)
 
         float diff;
 
-        if (peaks_data->running_amplitude == FLT_MAX ||
+        if (peaks_data->running_amplitude == 0.0 ||
             isnan(peaks_data->running_amplitude) ||
             isinf(peaks_data->running_amplitude))
         {
@@ -1161,7 +1173,14 @@ void runtime_detect_trends(Scope* used_scope, unsigned int curr_idx, unsigned in
         {   
             // Прошлый кандидат становится максимумом
             peaks_data->running_max = peaks_data->max_candidate;
-            peaks_data->running_amplitude = fabsf(peaks_data->running_max - peaks_data->running_min);
+
+
+            if (peaks_data->running_max != -FLT_MAX &&
+                peaks_data->running_min != FLT_MAX)
+            {
+                peaks_data->running_amplitude =
+                    fabsf(peaks_data->running_max - peaks_data->running_min);
+            }
 
             // Текущий пик становится кандидатом
             peaks_data->max_candidate = current_max;
@@ -1212,7 +1231,13 @@ void runtime_detect_trends(Scope* used_scope, unsigned int curr_idx, unsigned in
             peaks_data->running_min = peaks_data->min_candidate;
             peaks_data->min_candidate = current_min;
 
-            peaks_data->running_amplitude = fabsf(peaks_data->running_max - peaks_data->running_min);
+
+            if (peaks_data->running_max != -FLT_MAX &&
+                peaks_data->running_min != FLT_MAX)
+            {
+                peaks_data->running_amplitude =
+                    fabsf(peaks_data->running_max - peaks_data->running_min);
+            }
 
 
             peaks_data->min_confidence = peaks_data->trend_confidence;
@@ -1758,7 +1783,7 @@ void runtime_detect_halfwaves(Scope* used_scope, float current_value, float curr
 void halfwaves_detector_accumulation(Scope* used_scope, float current_value, float current_time)
 {
 
-    if (TEST_MODE_4) {
+    if (TEST_MODE_5) {
 
         printf("Аккумуляция детектор! в ZC анализ: %lf\n", (double)current_value);
         
@@ -1789,8 +1814,16 @@ void halfwaves_detector_accumulation(Scope* used_scope, float current_value, flo
     // Velocity
 
     float ds = fabsf(curr_x - prev_x);
+
     float dt = fabsf(curr_time - prev_time);
 
+
+    const float MIN_DT = 1.0f / SCOPE_SAMPLE_RATE;
+
+    if (dt < MIN_DT)
+        dt = MIN_DT;
+
+        
     float velocity; 
 
     
@@ -1848,7 +1881,7 @@ typedef enum zero_cross_fill_status
 void drop_zc_accumulation(Scope* used_scope, float current_value, float current_time)
 {
 
-    if (TEST_MODE_4) {
+    if (TEST_MODE_5) {
 
         printf("Дроп детектора!: %lf\n", (double)current_value);
         
@@ -2110,6 +2143,7 @@ void add_halfwave_in_buffer(Scope* used_scope, halfwave_data_ctx new_halfwave)
 }
 
 
+
 void detect_pattern_and_period(Scope* used_scope)
 {
     if (TEST_MODE_5) {
@@ -2159,7 +2193,11 @@ void detect_pattern_and_period(Scope* used_scope)
         // Нашли период
         used_scope->signal_control_data.measured_signal_characteristics.measured_period = detect_period(used_scope, pattern_steps);
 
-        used_scope->signal_control_data.measured_signal_characteristics.measured_frequency = 1.0f / used_scope->signal_control_data.measured_signal_characteristics.measured_period;
+        float freq = 1.0f / used_scope->signal_control_data.measured_signal_characteristics.measured_period;
+
+        // До ближайшего 0.5
+        used_scope->signal_control_data.measured_signal_characteristics.measured_frequency =
+            roundf(freq * 2.0f) / 2.0f;
     }
 }
 
@@ -2205,6 +2243,13 @@ int detect_pattern(Scope* used_scope)
     // Проходим функцией сравнения полуволн в 1 сторону, чекая пуста 
     // ли позиция полуволны в массиве символом и выдаём всем похожим 
     // полуволнам одинаковые цифры, далее инкрементим перед следующей
+
+
+    
+    // TODO!!!
+    // Сортированная копия
+    halfwave_data_ctx ordered[PERIOD_DETECTOR_BUFFER_SIZE];
+
 
     int pattern_elements[buffer->count * 2];
 
@@ -2300,7 +2345,7 @@ int detect_pattern(Scope* used_scope)
     // ===== Подготовка шаблона =====
 
 
-    if (TEST_MODE_5) {
+    if (TEST_MODE_6) {
 
         printf("\nТекущий шаблон: ");
 
@@ -4890,9 +4935,65 @@ void on_off_command(Button* btn)
     if (used_scope->main_settings.current_state == ON_SS)
     {
         used_scope->scope_render_data.scope_on_off_button.pressed_color = used_scope->scope_render_data.main_color_4;
+
     }
     else 
     {
+
+        if (TEST_MODE_6)
+        {
+            printf("\n\n================ MAIN BUFFER ================\n");
+
+            scope_buffer_ctx* buffer =
+                &used_scope->signal_control_data.scope_buffer_data;
+
+
+            for (int i = 0; i < 64; i++)
+            {
+                printf("[%3d] value=%8.5f  time=%10.6f\n",
+                    i,
+                    buffer->samples[i].value,
+                    buffer->samples[i].time);
+            }
+
+            
+            printf("mb count = %u\n\n", buffer->count);
+
+
+            printf("\n\n================ HALFWAVES ================\n");
+
+            wave_pattern_detector_ctx* wpd =
+                &used_scope->signal_control_data.wave_pattern_detector_data;
+
+            for (int i = 0; i < PERIOD_DETECTOR_BUFFER_SIZE; i++)
+            {
+                halfwave_data_ctx* hw = &wpd->halfwaves_for_detection[i];
+
+                printf("[%2d] type=%d  start=%8.5f  end=%8.5f  "
+                    "peak=%8.5f  trough=%8.5f  "
+                    "area=%8.5f  speed=%8.5f\n",
+                    i,
+                    hw->halfwave_type,
+                    hw->start_time,
+                    hw->end_time,
+                    hw->peak_value,
+                    hw->trough_value,
+                    hw->halfwave_area,
+                    hw->halfwave_smoothed_speed);
+            }
+
+
+            printf("hb count = %u\n\n", wpd->count);
+
+            printf("\n\n FREQ BEFORE OFF = %f\n\n", used_scope->signal_control_data.measured_signal_characteristics.measured_frequency);
+            printf("\n\n PERIOD BEFORE OFF = %f\n\n", used_scope->signal_control_data.measured_signal_characteristics.measured_period);
+        
+        
+        }
+
+
+        scope_main_settings_clear(used_scope);
+
         scope_signal_buffer_clear(used_scope);
         scope_running_signal_characteristics_clear(used_scope);
         scope_measured_signal_characteristics_clear(used_scope);
@@ -4901,10 +5002,62 @@ void on_off_command(Button* btn)
         scope_wave_pattern_detector_former_clear(used_scope);
         scope_wave_pattern_detector_clear(used_scope);
         
+        scope_screens_gui_renew_by_signal_data(used_scope);
+
         used_scope->scope_render_data.scope_on_off_button.pressed_color = used_scope->scope_render_data.main_color_5;
 
 
-        used_scope->signal_control_data.type_of_controlled_signal = CLEAN_CST;
+
+        if (TEST_MODE_6)
+        {
+            printf("\n\n================ MAIN BUFFER ================\n");
+
+            scope_buffer_ctx* buffer =
+                &used_scope->signal_control_data.scope_buffer_data;
+
+
+            for (int i = 0; i < 64; i++)
+            {
+                printf("[%3d] value=%8.5f  time=%10.6f\n",
+                    i,
+                    buffer->samples[i].value,
+                    buffer->samples[i].time);
+            }
+
+            printf("mb count = %u\n\n", buffer->count);
+
+
+            printf("\n\n================ HALFWAVES ================\n");
+
+            wave_pattern_detector_ctx* wpd =
+                &used_scope->signal_control_data.wave_pattern_detector_data;
+
+            for (int i = 0; i < PERIOD_DETECTOR_BUFFER_SIZE; i++)
+            {
+                halfwave_data_ctx* hw = &wpd->halfwaves_for_detection[i];
+
+                printf("[%2d] type=%d  start=%8.5f  end=%8.5f  "
+                    "peak=%8.5f  trough=%8.5f  "
+                    "area=%8.5f  speed=%8.5f\n",
+                    i,
+                    hw->halfwave_type,
+                    hw->start_time,
+                    hw->end_time,
+                    hw->peak_value,
+                    hw->trough_value,
+                    hw->halfwave_area,
+                    hw->halfwave_smoothed_speed);
+            }
+
+            
+            printf("hb count = %u\n\n", wpd->count);
+
+
+            printf("\n\n FREQ AFTER OFF = %f\n\n", used_scope->signal_control_data.measured_signal_characteristics.measured_frequency);
+            printf("\n\n PERIOD AFTER OFF = %f\n\n", used_scope->signal_control_data.measured_signal_characteristics.measured_period);
+        }
+
+
     }
 }
 
@@ -5603,9 +5756,13 @@ void scope_render(Scope* used_scope)
 }
 
 
+
+
 void scope_destroy(Scope* used_scope)
 {
     if (!used_scope) return;
+
+    scope_main_settings_init(used_scope);
 
     scope_signal_buffer_clear(used_scope);
 
@@ -5626,15 +5783,6 @@ void scope_destroy(Scope* used_scope)
     
 
     // ===== 2. UI элементы (если у них есть destroy) =====
-
-
-    // ===== 3. буфер =====
-    // НЕ НУЖНО free — он static array внутри struct
-    // но можно “обнулить состояние”
-
-    used_scope->signal_control_data.scope_buffer_data.head = 0;
-    used_scope->signal_control_data.scope_buffer_data.count = 0;
-
 
     used_scope = NULL;
 }
