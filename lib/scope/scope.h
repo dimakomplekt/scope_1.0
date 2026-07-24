@@ -537,6 +537,34 @@ typedef struct signal_render_ctx
 } signal_render_ctx;
 
 
+
+typedef struct point_ctx {
+
+    int x;
+    int y;
+
+} point_ctx;
+
+
+typedef struct anchor_points_ctx
+{
+
+    point_ctx UL;
+    point_ctx UC;
+    point_ctx UR;
+
+    point_ctx CL;
+    point_ctx CC;
+    point_ctx CR;
+
+    point_ctx DL;
+    point_ctx DC;
+    point_ctx DR;
+
+} anchor_points_ctx;
+
+
+
 // ===== Scope display render data =====
 
 
@@ -997,6 +1025,8 @@ typedef struct scope_gui_basic_parameters
     SDL_Color v_line_17_color;
 
 
+    anchor_points_ctx screen_anchor_points;
+
     // ===== Кнопки и пояснения =====
     
     SDL_Color description_text_color;   // Общий цвет для всех пояснений
@@ -1167,7 +1197,7 @@ typedef struct scope_gui_basic_parameters
 
 
 
-typedef struct scope_render {
+typedef struct scope_render_ctx {
 
     // Ссылка на рендерер
     SDL_Renderer* renderer;
@@ -1197,6 +1227,7 @@ typedef struct scope_render {
     int current_signal_scale;
     int current_time_scale;
 
+    double current_zero_shift;
 
     // Флаг для апдейта объектов GUI при смене настроек
     bool scope_gui_need_update;
@@ -1266,7 +1297,7 @@ typedef struct scope_main_settings
     // Текущие единицы измерения для отображения
     signal_units current_signal_units;              // Всегда вольты
     time_units current_time_units;                  // Переменная времени всегда в секундах, но на рендер адекватнее выводить в другом формате
-    frequency_units current_frequency_units;         // Переменная времени всегда в герцах, но на рендер адекватнее выводить в другом формате
+    frequency_units current_frequency_units;        // Переменная времени всегда в герцах, но на рендер адекватнее выводить в другом формате
 
     // Сколько вольт в 1 юните (только целые числа для ровной развертки)
     int signal_val_in_one_unit;

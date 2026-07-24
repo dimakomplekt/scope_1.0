@@ -556,9 +556,12 @@ void scope_gui_init(Scope* used_scope, SDL_Renderer* renderer)
     if (used_scope->scope_render_data.basic_border_thickness_1 < 1) used_scope->scope_render_data.basic_border_thickness_1 = 1;
     if (used_scope->scope_render_data.basic_border_thickness_2 < 1) used_scope->scope_render_data.basic_border_thickness_2 = 1;
 
-    // Базово - 1 вольт, 100 мкс на единицу сетки
+    // Базово - 1 вольт, 100 мс на единицу сетки
     used_scope->scope_render_data.current_signal_scale = 1;
     used_scope->scope_render_data.current_time_scale = 100;
+
+    // Базово - 0 по центру
+    used_scope->scope_render_data.current_zero_shift = 0.0;
 
     // Базовые настройки GUI
     used_scope->scope_render_data.gui_parameters.width_units = 22;
@@ -2202,6 +2205,27 @@ void detect_pattern_and_period(Scope* used_scope)
 }
 
 
+// Компаратор для qsort (по возрастанию поля time)
+int compare_halfwaves_start_time(const void *a, const void *b) 
+{
+    // Приводим указатели к вашему типу структуры
+    const halfwave_data_ctx *ctx_a = (const halfwave_data_ctx *)a;
+    const halfwave_data_ctx *ctx_b = (const halfwave_data_ctx *)b;
+
+    // Сравнение для типов float / double (защита от потери точности при касте в int)
+    if (ctx_a->start_time < ctx_b->start_time) return -1;
+    if (ctx_a->start_time > ctx_b->start_time) return 1;
+
+    return 0;
+
+    /* 
+    // Если поле time — это строго целое число (int), можно использовать упрощенный вариант:
+    return (ctx_a->time - ctx_b->time); 
+    */
+}
+
+
+
 int detect_pattern(Scope* used_scope)
 {
 
@@ -2221,17 +2245,45 @@ int detect_pattern(Scope* used_scope)
     // Обрезка буффера меньшего размера (учитываем только заполненные полуволны)
     // Заранее понятно, что буффер имеет четное количество волн
 
-    // можно написать более быструю функцию без копий, но пока такой достаточно
 
-    // Используем трюк с двойным буффером для увеличения шанса обнаружения паттерна
+
+    // Конечный массив - используем трюк с двойным буффером для увеличения шанса обнаружения паттерна
     halfwave_data_ctx curr_halfwaves_for_detection[buffer->count * 2];
 
-    // Делаем копию заполненной даты буффера в новый двойной буффер
-    for (unsigned int i = 0; i < buffer->count; i++)
+
+
+    // Производим или не производим переворот буффера (для случая, когда есть start_time < прошлого в idx > прошлого)
     {
-        curr_halfwaves_for_detection[i] = buffer->halfwaves_for_detection[i];
-        curr_halfwaves_for_detection[i + buffer->count] = buffer->halfwaves_for_detection[i];
+        int pivot = 0;
+        bool need_rotate = false;
+
+        for (unsigned int i = 1; i < buffer->count; i++)
+        {
+            if (buffer->halfwaves_for_detection[i].start_time <
+                buffer->halfwaves_for_detection[i - 1].start_time)
+            {
+                pivot = i;
+                need_rotate = true;
+                break;
+            }
+        }
+
+        // Заполняем массив с сортировкой по start-time, но сохранением порядка
+        for (unsigned int i = 0; i < buffer->count; i++)
+        {
+            unsigned int src =
+                need_rotate ?
+                (pivot + i) % buffer->count :
+                i;
+
+            curr_halfwaves_for_detection[i] =
+                buffer->halfwaves_for_detection[src];
+
+            curr_halfwaves_for_detection[i + buffer->count] =
+                curr_halfwaves_for_detection[i];
+        }
     }
+
 
     // ===== Подготовка буффера =====
 
@@ -2243,12 +2295,6 @@ int detect_pattern(Scope* used_scope)
     // Проходим функцией сравнения полуволн в 1 сторону, чекая пуста 
     // ли позиция полуволны в массиве символом и выдаём всем похожим 
     // полуволнам одинаковые цифры, далее инкрементим перед следующей
-
-
-    
-    // TODO!!!
-    // Сортированная копия
-    halfwave_data_ctx ordered[PERIOD_DETECTOR_BUFFER_SIZE];
 
 
     int pattern_elements[buffer->count * 2];
@@ -2556,49 +2602,67 @@ float detect_period(Scope* used_scope, int pattern_steps)
     float summ_period = 0.0f;
 
 
+
+    // Конечный массив - используем трюк с двойным буффером для увеличения шанса обнаружения паттерна
+    halfwave_data_ctx curr_halfwaves_for_detection[buffer->count];
+
+    // Производим или не производим переворот буффера (для случая, когда есть start_time < прошлого в idx > прошлого)
+    {
+        int pivot = 0;
+        bool need_rotate = false;
+
+        for (unsigned int i = 1; i < buffer->count; i++)
+        {
+            if (buffer->halfwaves_for_detection[i].start_time <
+                buffer->halfwaves_for_detection[i - 1].start_time)
+            {
+                pivot = i;
+                need_rotate = true;
+                break;
+            }
+        }
+
+        // Заполняем массив с сортировкой по start-time, но сохранением порядка
+        for (unsigned int i = 0; i < buffer->count; i++)
+        {
+            unsigned int src =
+                need_rotate ?
+                (pivot + i) % buffer->count :
+                i;
+
+            curr_halfwaves_for_detection[i] =
+                buffer->halfwaves_for_detection[src];
+        }
+    }
+
+
     // Обходим буффер, сравниваясь с count
     // Проходим стартовым индексом все позиции в буффере
-    while (start_halfwave_idx <= buffer->count - 1)
+    while (end_halfwave_idx < buffer->count)
     {
 
-        // Буффер может закольцеваться!
+        // Дополняем сумму периодов
+        summ_period += 
 
-        // Обычная сумма
-        if (buffer->halfwaves_for_detection[start_halfwave_idx].start_time < buffer->halfwaves_for_detection[end_halfwave_idx].end_time)
-        {
-            // Дополняем сумму периодов
-            summ_period += 
- 
-                buffer->halfwaves_for_detection[end_halfwave_idx].end_time -
-                buffer->halfwaves_for_detection[start_halfwave_idx].start_time;
+            curr_halfwaves_for_detection[end_halfwave_idx].end_time -
+            curr_halfwaves_for_detection[start_halfwave_idx].start_time;
 
-                if (TEST_MODE_5) {
+            if (TEST_MODE_5) {
 
-                    printf("Новая сумма периодов: .%f\n", summ_period);
-                    
-                }
+                printf("Новая сумма периодов: .%f\n", summ_period);
+                
+            }
 
-            // Увеличиваем счётчик
-            counter += 1;
-        }
-        else
-        {
-            // Cкип в случае перевёрнутого буффера - сумма будет вычислена, когда (end_halfwave_idx + pattern_steps) % buffer->count;
-            // начнёт переводить конечный индекс на новое значение   
-        }
+        // Увеличиваем счётчик
+        counter += 1;
 
 
         // Сдвиг к след. вычислению
 
-        // Стоппер сдвига в случае прихода к краю
-        if (start_halfwave_idx + pattern_steps >= buffer->count) break;
-
-
         // Следующий после прошлого end
-        start_halfwave_idx = (end_halfwave_idx + 1) % buffer->count;
-
+        start_halfwave_idx = (end_halfwave_idx + 1);
         // Сдвиг к следующему с учетом кольца
-        end_halfwave_idx = (end_halfwave_idx + pattern_steps) % buffer->count;
+        end_halfwave_idx = (end_halfwave_idx + pattern_steps);
 
     }
 
@@ -3867,6 +3931,42 @@ void scope_gui_renew(Scope* used_scope)
     used_scope->scope_render_data.gui_parameters.v_line_17_color = used_scope->scope_render_data.main_color_6;
 
 
+
+
+    anchor_points_ctx* ap = &used_scope->scope_render_data.gui_parameters.screen_anchor_points;
+
+
+
+    ap->UL.x = scope_top_border_x_1;
+    ap->UL.y = scope_top_border_y_1;
+
+    ap->UC.x = used_scope->scope_render_data.gui_parameters.display_x;
+    ap->UC.y = scope_top_border_y_1;
+
+    ap->UR.x = scope_top_border_x_2;
+    ap->UR.y = scope_top_border_y_2; 
+
+
+    ap->CL.x = scope_top_border_x_1;
+    ap->CL.y = used_scope->scope_render_data.gui_parameters.display_y;
+    
+    ap->CC.x = used_scope->scope_render_data.gui_parameters.display_x;
+    ap->CC.y = used_scope->scope_render_data.gui_parameters.display_y;
+
+    ap->CR.x = scope_top_border_x_2;
+    ap->CR.y = used_scope->scope_render_data.gui_parameters.display_y;
+
+
+    ap->DL.x = scope_low_border_x_1;
+    ap->DL.y = scope_low_border_y_1;
+    
+    ap->DC.x = used_scope->scope_render_data.gui_parameters.display_x;
+    ap->DC.y = scope_low_border_y_2 - scope_low_border_y_1;
+
+    ap->DR.x = scope_low_border_x_2;
+    ap->DR.y = scope_low_border_y_2;
+
+
     // ===== Кнопки и информация о кнопках =====
 
     // Общий цвет для всех пояснений
@@ -4718,6 +4818,357 @@ void scope_screens_gui_renew_by_signal_data(Scope* used_scope)
 
 void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
 {
+
+    /*
+    
+        есть вот такой контекст
+
+        // RAW → ANALYSIS → VIEW (DISPLAY) → PIXELS
+
+        typedef struct signal_render_point
+
+        {
+
+            int x;
+
+            int y;
+
+            bool show;
+
+        } signal_render_point;
+
+
+        typedef struct signal_render_ctx
+
+        {
+
+            signal_render_point points[RENDER_POINTS_BUFFER_SIZE];        // динамический массив
+
+            int size;                                                     // сколько точек (ширина дисплея)
+
+        } signal_render_ctx;
+
+
+        который мы под векторный графон определили, как
+
+        #define RENDER_POINTS_BUFFER_SIZE           (MAX_DISPLAY_WIDTH * SCOPE_SCREEN_OVERSAMPLING)
+
+        при этом есть
+
+            used_scope->scope_render_data.gui_parameters.display_width_units = 16;
+
+            used_scope->scope_render_data.gui_parameters.display_height_units = 8;
+
+
+        и есть
+
+            used_scope->scope_render_data.current_signal_scale = 1;
+
+            used_scope->scope_render_data.current_time_scale = 100;
+
+
+        и есть такое
+
+            used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit = 50;
+
+
+        и текущие
+
+
+            used_scope->main_settings.current_signal_units  = VOLTS_SU;                         // Базово - вольты 
+
+            used_scope->main_settings.current_time_units = MILLISECONDS_TU;                     // Базово - миллисекунды (но переменная всегда в секундах)
+
+            used_scope->main_settings.current_frequency_units = HERTZ_FU;                       // Базово - Герцы (но переменная всегда в Герцах)
+
+            
+        также, мы понимаем, где края дисплея по якорям
+
+        anchor_points_ctx display_anchors = used_scope->scope_render_data.gui_parameters.screen_anchor_points;
+
+
+        Требуется, по основному массиву буффера формата
+
+            // Одиночный сэмпл основного буффера
+            typedef struct sample_t {
+
+                float value;       // Значение сигнала
+                double time;       // Время приёма сигнала
+                double delta_t;    // Разница между временем приёма текущего сигнала и прошлого
+
+            } sample_t;
+
+
+            // Основной буффер
+            typedef struct scope_buffer_ctx {
+
+                sample_t samples[BUFFER_SIZE];
+
+                int head;                                      // Текущий индекс (для записи и чтения)
+                int count;                                     // Счётчик (для контроля переполнений)
+
+            } scope_buffer_ctx;
+
+
+        Который лежит в: 
+
+            &used_scope->signal_control_data.scope_buffer_data;
+
+
+        Двигаясь обратно от head-1 буффера,
+
+
+        Используя дельту времени между пикселями, по x зависящую от текущих:
+
+                used_scope->main_settings.current_time_units = MILLISECONDS_TU;
+
+                used_scope->scope_render_data.gui_parameters.display_width_units = 16;
+                used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit = 50;
+
+                used_scope->scope_render_data.current_time_scale = 100;
+
+
+        Используя дельту значения сигнала между пикселями, по y зависящую от текущих:
+
+            used_scope->main_settings.current_signal_units  = VOLTS_SU;  
+
+            used_scope->scope_render_data.gui_parameters.display_height_units = 8;
+            used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit = 50;
+
+            used_scope->scope_render_data.current_signal_scale = 1;
+
+
+
+        Заполниться единожды в render_data:
+        
+        от крайней левой границы дисплея до крайней правой или до куда хватает на момент,
+        обновив size и обновив контекст точек, значениями координат пикселей для текущих параметров развертки
+
+            signal_render_point points[RENDER_POINTS_BUFFER_SIZE];        // динамический массив
+
+            int size;                                                     // сколько точек (ширина дисплея)
+
+    */
+
+    scope_main_settings_ctx* settings = &used_scope->main_settings;
+
+    scope_render_ctx* render_parameters = &used_scope->scope_render_data;
+    scope_gui_basic_parameters* gui_parameters = &used_scope->scope_render_data.gui_parameters;
+
+
+    scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
+
+
+    // ===== 1.0. BASIC DATA =====
+
+    // Size of the display
+
+    int width_pixels =
+
+        gui_parameters->display_width_units *
+        render_parameters->basic_pixels_quantity_in_equivalent_unit;
+
+
+    int height_pixels =
+
+        gui_parameters->display_height_units *
+        render_parameters->basic_pixels_quantity_in_equivalent_unit;
+
+
+
+
+
+    // Time for whole srceen
+
+    int time_scale = render_parameters->current_time_scale;
+
+    double time_unit_multiplier;
+
+    switch (settings->current_time_units)
+    {
+        case NANOSECONDS_TU:
+
+            time_unit_multiplier = 1e-9;
+            break;
+
+        case MICROSECONDS_TU:
+
+            time_unit_multiplier = 1e-6;
+            break;
+
+
+        case MILLISECONDS_TU:
+
+            time_unit_multiplier = 1e-3;
+            break;
+
+
+        case SECONDS_TU:
+            time_unit_multiplier = 1;
+            break;
+        
+        default:
+            break;
+    }
+
+    
+    double whole_screen_time =
+
+        gui_parameters->display_width_units *
+        time_scale *
+        time_unit_multiplier;
+
+    double display_unit_time = whole_screen_time / gui_parameters->display_width_units;
+    
+    double pixel_time = width_pixels / whole_screen_time;
+
+
+    // Value for whole srceen
+
+    int signal_scale = render_parameters->current_signal_scale;
+
+    double signal_unit_multiplier;
+
+    switch (settings->current_signal_units)
+    {
+
+        case VOLTS_SU:
+            signal_unit_multiplier = 1;
+            break;
+        
+        default:
+            break;
+    }
+
+    
+    double whole_screen_signal =
+
+        gui_parameters->display_height_units *
+        signal_scale *
+        signal_unit_multiplier;
+
+    double display_unit_signal = whole_screen_signal / gui_parameters->display_height_units;
+    
+    double pixel_signal = height_pixels / whole_screen_signal;
+
+    // ===== 1.0 BASIC DATA =====
+
+
+    // ===== 2.0 Render buffer forming =====
+
+    scope_running_signal_data_ctx* running_data = &used_scope->signal_control_data.running_signal_characteristics;
+
+    float current_dc = running_data->running_dc_offset;
+
+    anchor_points_ctx* display_anchors = &used_scope->scope_render_data.gui_parameters.screen_anchor_points;
+
+    float current_zero_shift = used_scope->scope_render_data.current_zero_shift;
+    int pixel_zero_shift = current_zero_shift / pixel_signal;
+
+    // ============================================================================
+    // 2.0. Render buffer forming
+    // ============================================================================
+
+    // Последний доступный сэмпл (правая граница истории)
+    unsigned int newest_idx = (buffer->head + BUFFER_SIZE - 1) % BUFFER_SIZE;
+
+    double newest_time = buffer->samples[newest_idx].time;
+
+
+    // ----------------------------------------------------------------------------
+    // 2.1. Поиск левой границы временного окна
+    // ----------------------------------------------------------------------------
+    //
+    // Идём назад по кольцевому буферу, пока:
+    //
+    //  • либо не закончатся данные,
+    //  • либо не будет найден интервал времени,
+    //    достаточный для отображения всего экрана.
+    //
+    // В результате получаем:
+    //
+    //      window_start_idx
+    //
+    // который соответствует самой левой точке
+    // отображаемого временного окна.
+    //
+
+    unsigned int window_start_idx = newest_idx;
+
+    bool history_finished = false;
+    bool enough_history = false;
+
+
+    // TODO:
+    // while (...)
+    // {
+    //     ...
+    // }
+
+
+    // ----------------------------------------------------------------------------
+    // 2.2. Привязка окна к периоду сигнала
+    // ----------------------------------------------------------------------------
+    //
+    // Если истории хватает:
+    //
+    //      ищем ближайший восходящий Zero Crossing
+    //      левее window_start_idx.
+    //
+    // Если слева Zero Crossing отсутствует:
+    //
+    //      ищем ближайший восходящий Zero Crossing
+    //      правее window_start_idx.
+    //
+    // Если Zero Crossing отсутствует совсем:
+    //
+    //      render_start_idx = window_start_idx.
+    //
+    // В результате получаем:
+    //
+    //      render_start_idx
+    //
+    // Именно с него начинается отображение сигнала.
+    //
+
+    unsigned int render_start_idx = window_start_idx;
+
+
+    // TODO:
+    // search zero crossing
+
+
+    // ----------------------------------------------------------------------------
+    // 2.3. Формирование render-буфера
+    // ----------------------------------------------------------------------------
+    //
+    // Начиная с render_start_idx,
+    // двигаемся только вперёд по буферу.
+    //
+    // Для каждого экранного пикселя:
+    //
+    // 1. Вычисляем target_time.
+    //
+    // 2. Находим два соседних сэмпла:
+    //
+    //      prev.time <= target_time <= curr.time
+    //
+    // 3. Интерполируем значение сигнала.
+    //
+    // 4. Переводим значение
+    //    в экранные координаты.
+    //
+    // 5. Заполняем:
+    //
+    //      render_data->points[]
+    //
+    // После завершения:
+    //
+    //      render_data->size
+    //
+
+    // TODO:
+    // build render buffer
 
 }
 
@@ -5631,17 +6082,41 @@ void scope_render(Scope* used_scope)
         // Обновляем графику под рендер (даже для первых точек)
         scope_screens_gui_renew_by_signal_data(used_scope);
 
-        /*
-            // Заполняемся точками
-            signal_render_ctx* signal;
 
-            signal = &used_scope->scope_render_data.signal_render_data;
+        // Заполняемся точками
+        signal_render_ctx* signal;
 
-            build_fixed_time_render(used_scope, signal);
+        signal = &used_scope->scope_render_data.signal_render_data;
 
-            // Рисуем сигнал
-            draw_signal(used_scope, used_scope->scope_render_data.renderer);
-        */
+
+        switch (used_scope->main_settings.current_mode)
+        {
+            case SCOPE_MODE_FIXED_TIME_STEP_SRM:
+
+                build_fixed_time_render(used_scope, signal);
+                break;
+
+
+            case SCOPE_MODE_SCROLL_TO_RIGHT_SRM:
+
+                build_scroll_render(used_scope, signal);   
+                break;
+
+
+            case SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM:
+            
+                build_fixed_period_render(used_scope, signal);
+                break;
+            
+
+            default:
+                break;
+
+        }
+
+        // Рисуем сигнал
+        draw_signal(used_scope, used_scope->scope_render_data.renderer);
+
 
         // Текущие текстбоксы информации о сигнале
         Textbox_render(&used_scope->scope_render_data.signal_scale_textbox, used_scope->scope_render_data.renderer);
