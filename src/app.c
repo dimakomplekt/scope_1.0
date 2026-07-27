@@ -167,7 +167,7 @@ void SDL_app_update(SDL_app_ctx* app)
     }
 
     // Всегда чекаем инпуты
-    GI_update();
+    // GI_update();
 
     // Контроль цикла приложения по реальному времени
     //
@@ -177,20 +177,28 @@ void SDL_app_update(SDL_app_ctx* app)
     if (start_time_2 == 0) start_time_2 = curr_time;
 
 
+
+    const double STEP_120 = 1.0 / 120.0;
+
+    if (curr_time - start_time_1 >= STEP_120)
     {
+
+        GI_update();
+
+
         // Апдейт синуса на текущем simulation time
         // получаем 128 значений на отрезке времени 1 / 48000 с
         sin_generator_update();
 
         wave_samples_generated = true;
 
-
-
         // Апдейт осциллографа на текущем simulation time
         // получаем 128 значений на отрезке времени 1 / 48000 с
         scope_fast_update(&scope_1);
 
         wave_samples_passed_to_scope = true;
+
+        start_time_1 +=  STEP_120;
     }
     
 
@@ -235,15 +243,16 @@ void SDL_app_update(SDL_app_ctx* app)
 
     // Привязанно к рилтайму (для отсутствия коллов на каждом шаге) коллим анализ поступивших буфферов
     // для поиска характеристик сигнала в 2 раза чаще вывода на рендер
-    const double STEP_120 = 1.0 / 120.0;
+    const double STEP_60 = 1.0 / 60.0;
 
-
-    if (curr_time - start_time_2 >= STEP_120)
+    if (curr_time - start_time_2 >= STEP_60)
     {
         // Чек характеристик
+        //  scope_slow_update(&scope_1);
+
         scope_slow_update(&scope_1);
 
-
+        
         if (TEST_MODE_ANALYSATOR)
         {
 
@@ -259,7 +268,7 @@ void SDL_app_update(SDL_app_ctx* app)
         }
 
         // Сдвиг для паузы между этим чеком и следующим
-        start_time_2 += STEP_120;
+        start_time_2 += STEP_60;
     }
 
     // ==== SLOW ANALYSIS ====
@@ -273,11 +282,11 @@ void SDL_app_render(SDL_app_ctx* app)
 
     if (start_time_3 == 0) start_time_3 = curr_time;
 
-    const double STEP_60 = 1.0 / 60.0;
+    const double STEP_30 = 1.0 / 30.0;
 
 
     // Рендеринг с ограничением частоты в 60Гц
-    if (curr_time - start_time_3 >= STEP_60)
+    if (curr_time - start_time_3 >= STEP_30)
     {
         SDL_SetRenderDrawColor(app->renderer, 10, 10, 10, 255);
         SDL_RenderClear(app->renderer);
@@ -291,7 +300,7 @@ void SDL_app_render(SDL_app_ctx* app)
 
         SDL_RenderPresent(app->renderer);
 
-        start_time_3 += STEP_60;
+        start_time_3 += STEP_30;
     }
 }
 

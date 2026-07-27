@@ -6,8 +6,8 @@
 #define TEST_MODE_3 0 // Тест MIN-MAX-пайплайна
 #define TEST_MODE_4 0 // Тест zc-детектор пайплайна
 #define TEST_MODE_5 0 // Тест pattern-детектор пайплайна
-#define TEST_MODE_6 1 // Новый запуск анализа после on-off
-
+#define TEST_MODE_6 0 // Новый запуск анализа после on-off
+#define TEST_MODE_7 0 // Render волны
 
 // =========================================================================================== IMPORT
 
@@ -84,8 +84,8 @@ void scope_wave_pattern_detector_former_clear(Scope* used_scope);
 
 void scope_wave_pattern_detector_clear(Scope* used_scope);
 
-
 void scope_screen_gui_clear(Scope* used_scope);
+
 
 // ===== INIT and CLEAR helpers =====
 
@@ -213,6 +213,9 @@ void scope_gui_renew(Scope* used_scope);                                        
 
 void scope_screens_gui_renew_by_signal_data(Scope* used_scope);                     // Обновление данных для рендера сигнала 
 
+void main_screen_renew(Scope* useds_cope);                                          // Обновление данных для рендера сигнала
+
+
 
 void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data);    // Helper для построения даты на рендера сигнала
 
@@ -285,7 +288,7 @@ void scope_main_settings_init(Scope* used_scope)
     used_scope->main_settings.signal_val_in_one_unit = 1;                               // Базово - 1 (режим с фикс. разв)
     
     used_scope->main_settings.current_signal_units  = VOLTS_SU;                         // Базово - вольты 
-    used_scope->main_settings.current_time_units = MILLISECONDS_TU;                     // Базово - микросекунды (но переменная всегда в секундах)
+    used_scope->main_settings.current_time_units = MICROSECONDS_TU;                     // Базово - микросекунды (но переменная всегда в секундах)
     used_scope->main_settings.current_frequency_units = HERTZ_FU;                       // Базово - Герцы (но переменная всегда в Герцах)
     
     // ===== Инициализация основных настроек ===== 
@@ -557,8 +560,8 @@ void scope_gui_init(Scope* used_scope, SDL_Renderer* renderer)
     if (used_scope->scope_render_data.basic_border_thickness_2 < 1) used_scope->scope_render_data.basic_border_thickness_2 = 1;
 
     // Базово - 1 вольт, 100 мс на единицу сетки
-    used_scope->scope_render_data.current_signal_scale = 1;
-    used_scope->scope_render_data.current_time_scale = 100;
+    used_scope->scope_render_data.current_signal_scale = 2;
+    used_scope->scope_render_data.current_time_scale = 1000;
 
     // Базово - 0 по центру
     used_scope->scope_render_data.current_zero_shift = 0.0;
@@ -608,10 +611,10 @@ void scope_screen_gui_init(Scope* used_scope)
 {
     signal_render_ctx* render = &used_scope->scope_render_data.signal_render_data;
 
+    memset(render, 0, sizeof(signal_render_ctx));
+
     render->size = RENDER_POINTS_BUFFER_SIZE;
 
-    // ничего не выделяем
-    // память уже существует внутри struct
 }
 
 
@@ -633,7 +636,7 @@ void scope_main_settings_clear(Scope* used_scope)
     used_scope->main_settings.signal_val_in_one_unit = 1;                               // Базово - 1 (режим с фикс. разв)
     
     used_scope->main_settings.current_signal_units  = VOLTS_SU;                         // Базово - вольты 
-    used_scope->main_settings.current_time_units = MILLISECONDS_TU;                     // Базово - микросекунды (но переменная всегда в секундах)
+    used_scope->main_settings.current_time_units = MICROSECONDS_TU;                     // Базово - микросекунды (но переменная всегда в секундах)
     used_scope->main_settings.current_frequency_units = HERTZ_FU;                       // Базово - Герцы (но переменная всегда в Герцах)
     
     // ===== Инициализация основных настроек ===== 
@@ -703,7 +706,12 @@ void scope_screen_gui_clear(Scope* used_scope)
 {
     // Repeat init
     
-    scope_gui_init(used_scope, used_scope->scope_render_data.renderer);
+    signal_render_ctx* render = &used_scope->scope_render_data.signal_render_data;
+
+    memset(render, 0, sizeof(signal_render_ctx));
+
+
+    // Memse
 }
 
 
@@ -2160,6 +2168,8 @@ void detect_pattern_and_period(Scope* used_scope)
     // Недостаточно данных или нечетное количество полуволн
     if (buffer->count % 2 != 0 && (buffer->count < PERIOD_DETECTOR_BUFFER_SIZE / 16)) 
     {
+
+
         if (TEST_MODE_5) {
 
             printf("Набрали в буффер: %u\n", buffer->count);
@@ -4782,42 +4792,64 @@ void scope_screens_gui_renew_by_signal_data(Scope* used_scope)
 
     if (!safe_old_mode) ms->current_mode = ms->acessable_modes[0];
 
+}
 
-    /*
 
+void main_screen_renew(Scope* used_scope)
+{
     // ===== Присвоение данных о сигнале для рендера ====
+    scope_signal_control_ctx* signal = &used_scope->signal_control_data;
 
-    signal_render_ctx* signal_render_data_out = &render->signal_render_data;
+    if (signal->scope_buffer_data.count == 0) return;
 
-    switch (ms->current_mode)
+
+    signal_render_ctx* signal_render = &used_scope->scope_render_data.signal_render_data;
+
+
+    if (TEST_MODE_7)
     {
-        case SCOPE_MODE_FIXED_TIME_STEP_SRM:
-        {
-            build_fixed_time_render(used_scope, signal_render_data_out);
-            break;
-        }
-
-        case SCOPE_MODE_SCROLL_TO_RIGHT_SRM:
-        {
-            build_scroll_render(used_scope, signal_render_data_out);
-            break;
-        }
-
-        case SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM:
-        {
-            build_period_render(used_scope, signal_render_data_out);
-            break;
-        }
-
-        default: break;
+        printf("\n\nЗона рассчёта!\n\n");
     }
 
-    */
+    switch (used_scope->main_settings.current_mode)
+    {
+        case SCOPE_MODE_FIXED_TIME_STEP_SRM:
+
+            if (TEST_MODE_7)
+            {
+                printf("\n\nЗашли в выбор тайм расчёта!\n\n");
+            }
+
+            build_fixed_time_render(used_scope, signal_render);
+            break;
+
+
+        case SCOPE_MODE_SCROLL_TO_RIGHT_SRM:
+
+            build_scroll_render(used_scope, signal_render);   
+            break;
+
+
+        case SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM:
+        
+            build_fixed_period_render(used_scope, signal_render);
+            break;
+        
+
+        default:
+            break;
+
+    }
 }
 
 
 void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
 {
+
+    if (TEST_MODE_7)
+    {
+        printf("\n\nНачинаем строить рендер-контекст для фиксированного времени\n\n");
+    }
 
     /*
     
@@ -4976,8 +5008,6 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
 
 
 
-
-
     // Time for whole srceen
 
     int time_scale = render_parameters->current_time_scale;
@@ -5018,9 +5048,10 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
         time_scale *
         time_unit_multiplier;
 
+
     double display_unit_time = whole_screen_time / gui_parameters->display_width_units;
     
-    double pixel_time = width_pixels / whole_screen_time;
+    double pixel_time = whole_screen_time / width_pixels;
 
 
     // Value for whole srceen
@@ -5028,6 +5059,7 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
     int signal_scale = render_parameters->current_signal_scale;
 
     double signal_unit_multiplier;
+
 
     switch (settings->current_signal_units)
     {
@@ -5043,13 +5075,22 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
     
     double whole_screen_signal =
 
+
         gui_parameters->display_height_units *
         signal_scale *
         signal_unit_multiplier;
 
+
     double display_unit_signal = whole_screen_signal / gui_parameters->display_height_units;
     
-    double pixel_signal = height_pixels / whole_screen_signal;
+    double pixel_signal = whole_screen_signal / height_pixels;
+
+
+    if (TEST_MODE_7)
+    {
+        printf("\n\nСкан базовой даты\n\n");
+    }
+
 
     // ===== 1.0 BASIC DATA =====
 
@@ -5058,12 +5099,8 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
 
     scope_running_signal_data_ctx* running_data = &used_scope->signal_control_data.running_signal_characteristics;
 
-    float current_dc = running_data->running_dc_offset;
+    float current_dc_offset = running_data->running_dc_offset;
 
-    anchor_points_ctx* display_anchors = &used_scope->scope_render_data.gui_parameters.screen_anchor_points;
-
-    float current_zero_shift = used_scope->scope_render_data.current_zero_shift;
-    int pixel_zero_shift = current_zero_shift / pixel_signal;
 
     // ============================================================================
     // 2.0. Render buffer forming
@@ -5093,18 +5130,46 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
     // отображаемого временного окна.
     //
 
-    unsigned int window_start_idx = newest_idx;
+    int window_start_idx = newest_idx;
 
+    // Данные кончились ранее нахождения оптимальной точки вывода
     bool history_finished = false;
+
+
+    // Найдена оптимальная стартовая точка:
+    // истории хватает на всё окно и найден ближайший
+    // восходящий Zero Crossing.
     bool enough_history = false;
 
 
-    // TODO:
-    // while (...)
-    // {
-    //     ...
-    // }
+    while (!history_finished && !enough_history)
+    {
+        window_start_idx--;
 
+        unsigned int curr_idx = (window_start_idx + BUFFER_SIZE) % BUFFER_SIZE;
+        unsigned int next_idx = (window_start_idx + BUFFER_SIZE + 1) % BUFFER_SIZE;
+
+        // Полное кольцо == реальный конец
+        history_finished = (buffer->samples[next_idx].time < buffer->samples[curr_idx].time);
+
+        // Дошли до охвата всего экрана
+        bool enough_time_history = buffer->samples[newest_idx].time - buffer->samples[curr_idx].time >= whole_screen_time;
+
+        if (enough_time_history)
+        {
+            bool zc_found = (buffer->samples[next_idx].value > current_dc_offset &&
+                buffer->samples[curr_idx].value < current_dc_offset);
+
+            if (zc_found)
+                enough_history = true;
+        }
+    }
+
+
+    if (TEST_MODE_7)
+    {
+        printf("\n\nМетод формирования буффераn\n");
+    }
 
     // ----------------------------------------------------------------------------
     // 2.2. Привязка окна к периоду сигнала
@@ -5131,46 +5196,415 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
     // Именно с него начинается отображение сигнала.
     //
 
+
+
+    // Очистка прошлого буффер
+
+    // Max size
+    render_data->size = width_pixels;
+
+    // scope_screen_gui_clear(used_scope);
+
+
+    /*
+    
+        Знаем:
+        
+
+        double whole_screen_time =
+
+            gui_parameters->display_width_units *
+            time_scale *
+            time_unit_multiplier;
+
+        double display_unit_time = whole_screen_time / gui_parameters->display_width_units;
+        
+        double pixel_time = whole_screen_time / width_pixels;
+
+    
+        double whole_screen_signal =
+
+            gui_parameters->display_height_units *
+            signal_scale *
+            signal_unit_multiplier;
+
+        double display_unit_signal = whole_screen_signal / gui_parameters->display_height_units;
+        
+        double pixel_signal = whole_screen_signal / height_pixels ;
+
+
+        Знаем anhor points
+
+        Знаем RENDER_POINTS_BUFFER_SIZE
+
+        и знаем, сколько от него надо взять на заполнение текущего промежутка (просто current_width)
+
+        render->size = width_pixels;
+    */
+
+
+    // Опорные точки
+    anchor_points_ctx* display_anchors = &used_scope->scope_render_data.gui_parameters.screen_anchor_points;
+
     unsigned int render_start_idx = window_start_idx;
 
 
-    // TODO:
-    // search zero crossing
+    float current_zero_shift = used_scope->scope_render_data.current_zero_shift;
+    int pixel_zero_shift = - current_zero_shift / pixel_signal; // (- for SDL логики)
 
 
-    // ----------------------------------------------------------------------------
-    // 2.3. Формирование render-буфера
-    // ----------------------------------------------------------------------------
-    //
-    // Начиная с render_start_idx,
-    // двигаемся только вперёд по буферу.
-    //
-    // Для каждого экранного пикселя:
-    //
-    // 1. Вычисляем target_time.
-    //
-    // 2. Находим два соседних сэмпла:
-    //
-    //      prev.time <= target_time <= curr.time
-    //
-    // 3. Интерполируем значение сигнала.
-    //
-    // 4. Переводим значение
-    //    в экранные координаты.
-    //
-    // 5. Заполняем:
-    //
-    //      render_data->points[]
-    //
-    // После завершения:
-    //
-    //      render_data->size
-    //
 
-    // TODO:
-    // build render buffer
+    int signal_boarder_upside = whole_screen_signal / 2 - current_zero_shift;
+    int signal_boarder_downside = - whole_screen_signal / 2 + current_zero_shift;
 
+    
+    if (TEST_MODE_7)
+    {
+        printf("\n\nФормирование\n\n");
+        printf("%f\n", pixel_signal);
+        printf("%u\n", pixel_zero_shift);
+    }
+
+    if (enough_history)
+    {   
+
+        if (TEST_MODE_7)
+        {
+            printf("\n\nДостаточно даты для рендера\n\n");
+        }
+
+        // Заполнение буффера до полного буффера с округлением ровного шага для рендеринга
+        unsigned int curr_s_index = render_start_idx;
+ 
+        unsigned int next_s_index = (curr_s_index + BUFFER_SIZE + 1) % BUFFER_SIZE;
+
+        unsigned int prev_next_s_index = (next_s_index + BUFFER_SIZE - 1) % BUFFER_SIZE;
+
+
+        // С учетом текущего offset
+        int x_0_pixel = display_anchors->CL.x;  
+        int y_0_pixel = display_anchors->CL.y + pixel_zero_shift;
+
+        // Значения следующего присваиваемого пикселя со сглаживанием
+        int x_pixel_for_set;
+        int y_pixel_for_set;
+        bool pixel_set_status = false;
+
+
+        if (TEST_MODE_7)
+        {
+            printf("\n\nНастроились\n\n");
+        }
+
+        // Проходим каждый пиксель
+        for (int i = 0; i < render_data->size; i++)
+        {
+            // Заполняем каждый пиксель, проходя по кольцу буффера, смещаясь на dt между пикселями с линейным
+            // слаживанием. Выставляем true или false в show, в зависимости от того, влезаем ли мы текущим значением 
+            // в область видимости дисплея
+
+            if (TEST_MODE_7)
+            {
+                printf("\nЗашли в for %u.\n", i);
+            }
+
+
+
+            // ===== Присваивание первого шага =====
+            if (i == 0)
+            {
+                render_data->points[i].x = x_0_pixel;
+                render_data->points[i].y = y_0_pixel;
+                render_data->points[i].show = true;
+
+                // Пропускаем последующее дефолтное присваивание, переходим к логике генерации
+                // следующих значений на присвоение
+                
+            }
+
+            else
+            {
+
+                // ===== Next со сглаживанием ====
+
+                // TODO: чек, может быть ещё есть какие варианты на сглаживание, кроме середины соседних точек буффера до и после зоны pixel_time_dt
+                float expected_signal_value = 0.5 * (buffer->samples[next_s_index].value + buffer->samples[prev_next_s_index].value);
+
+    
+                // Переводим ожидаемое значение в 
+
+                // Вывод следуюшего значения
+                x_pixel_for_set = x_0_pixel + i; // Простейший сдвиг - нам неважно, какое там было бы время реально
+                y_pixel_for_set = y_0_pixel + (int)(expected_signal_value / pixel_signal); // Присвоение ожидаемого времени на данный пиксель
+
+
+                if (
+
+                    (expected_signal_value > signal_boarder_downside) && 
+                    (expected_signal_value < signal_boarder_upside)
+
+                )
+                {
+                    pixel_set_status = true;
+                }
+                else pixel_set_status = false;
+
+
+                // Присвоение
+
+                render_data->points[i].x = x_pixel_for_set;
+                render_data->points[i].y = y_pixel_for_set;
+                render_data->points[i].show = pixel_set_status;
+            }
+
+
+            // Ищем, что из буффера сигнала больше всего соответствует следуюшему пикселю
+
+            double zero_time = buffer->samples[render_start_idx].time;
+            double target_time = zero_time + i * pixel_time;
+
+            while (buffer->samples[next_s_index].time < target_time)
+            {
+                // Двигаемся, в поисках следующего индекса, разница с по времени 
+                // с сэмплом в котором будет приблизительно равна разнице
+                // по времени между пикселями 
+                next_s_index = (next_s_index + BUFFER_SIZE + 1) % BUFFER_SIZE;
+
+                if (TEST_MODE_7)
+                {
+                    printf("SEARCH");
+
+                }
+            }
+
+            // Присваиваемся по последнему принятому
+            curr_s_index = next_s_index;
+
+            // Сдвиг текущего индекса
+            prev_next_s_index = (next_s_index + BUFFER_SIZE - 1) % BUFFER_SIZE;
+
+
+                        
+            if (TEST_MODE_7)
+            {
+                printf(
+                    "pixel_time = %.12f\n"
+                    "zero_time  = %.12f\n"
+                    "target     = %.12f\n"
+                    "next_time  = %.12f\n",
+                    pixel_time,
+                    zero_time,
+                    target_time,
+                    buffer->samples[next_s_index].time
+                );
+            }
+        }
+
+
+        if (TEST_MODE_7)
+        {
+            printf("\n\nНАШЛИ и заполнились\n\n");
+        }
+
+
+
+        for (int i = 0; i < 100; i++)
+        {
+            if (TEST_MODE_7 && i < 100)
+            {
+                printf(
+                    "P[%3d]  x=%4d  y=%4d  show=%d\n",
+                    i,
+                    render_data->points[i].x,
+                    render_data->points[i].y,
+                    render_data->points[i].show
+                );
+            }
+        }
+    }
+
+
+    if (history_finished)
+    {
+        // TODO - добить
+        return;
+
+        if (TEST_MODE_7)
+        {
+            printf("\n\nСНедостаточно даты для рендера\n\n");
+        }
+
+
+        // Check zero cross position
+        bool history_finished_zc_found = false;
+
+        // С какой стороны кольца был найден render_start_idx
+        unsigned zc_idx = render_start_idx;
+
+        while ((zc_idx != newest_idx) && !history_finished_zc_found)
+        {
+
+            unsigned int curr_idx = zc_idx;
+
+            unsigned int next_idx =
+                (curr_idx + 1) % BUFFER_SIZE;
+
+
+            if (buffer->samples[next_idx].value > current_dc_offset &&
+            buffer->samples[curr_idx].value < current_dc_offset)
+            {   
+                history_finished_zc_found = true;
+            }   
+
+            zc_idx = next_idx;
+        }
+
+
+        int update_start_idx;
+
+        if (history_finished_zc_found)
+        {
+            // Заполнение буффера от ZC до new_idx с округлением ровного шага для рендеринга
+            update_start_idx = zc_idx;
+        }
+        else
+        {
+            // Заполнение буффера от базовой точки до new_idx с округлением ровного шага для рендеринга
+            update_start_idx = render_start_idx;
+        }
+
+
+        // Заполнение буффера до полного буффера с округлением ровного шага для рендеринга
+        unsigned int curr_s_index = update_start_idx;
+ 
+        unsigned int next_s_index = (curr_s_index + BUFFER_SIZE + 1) % BUFFER_SIZE;
+
+        unsigned int prev_next_s_index = (next_s_index + BUFFER_SIZE - 1) % BUFFER_SIZE;
+
+
+        // С учетом текущего offset
+        int x_0_pixel = display_anchors->CL.x;  
+        int y_0_pixel = display_anchors->CL.y + pixel_zero_shift;
+
+        // Значения следующего присваиваемого пикселя со сглаживанием
+        int x_pixel_for_set;
+        int y_pixel_for_set;
+        bool pixel_set_status = false;
+
+
+        // Разница между head буффера и текущим найденным стартом
+        int splitter_count;
+
+
+        if (newest_idx > curr_s_index)
+            splitter_count = (newest_idx - curr_s_index);
+
+        else 
+            splitter_count = (BUFFER_SIZE - curr_s_index + newest_idx);
+
+
+
+        // Проходим каждый пиксель
+        // Заполняемся до сплиттера
+        for (int i = splitter_count; i < render_data->size; i++)
+        {   
+                render_data->points[i].x = 0;
+                render_data->points[i].y = 0;
+                render_data->points[i].show = false;
+
+        }
+
+        // Проходим каждый пиксель
+        // Заполняемся до сплиттера
+        for (int i = 0; i < splitter_count; i++)
+        {
+            // Заполняем каждый пиксель, проходя по кольцу буффера, смещаясь на dt между пикселями с линейным
+            // слаживанием. Выставляем true или false в show, в зависимости от того, влезаем ли мы текущим значением 
+            // в область видимости дисплея
+
+
+            // ===== Присваивание первого шага =====
+            if (i == 0)
+            {
+                render_data->points[i].x = x_0_pixel;
+                render_data->points[i].y = y_0_pixel;
+                render_data->points[i].show = true;
+
+                // Пропускаем последующее дефолтное присваивание, переходим к логике генерации
+                // следующих значений на присвоение
+                
+            }
+
+            else
+            {
+
+                // ===== Next со сглаживанием ====
+
+                // TODO: чек, может быть ещё есть какие варианты на сглаживание, кроме середины соседних точек буффера до и после зоны pixel_time_dt
+                float expected_signal_value = 0.5 * (buffer->samples[next_s_index].value + buffer->samples[prev_next_s_index].value);
+
+    
+                // Переводим ожидаемое значение в 
+
+                // Вывод следуюшего значения
+                x_pixel_for_set = x_0_pixel + i; // Простейший сдвиг - нам неважно, какое там было бы время реально
+                y_pixel_for_set = y_pixel_for_set = y_0_pixel + (int)(expected_signal_value / pixel_signal); // Присвоение ожидаемого времени на данный пиксель
+
+
+                if (
+
+                    (expected_signal_value > signal_boarder_downside) && 
+                    (expected_signal_value < signal_boarder_upside)
+
+                )
+                {
+                    pixel_set_status = true;
+                }
+                else pixel_set_status = false;
+
+
+                // Присвоение
+
+                render_data->points[i].x = x_pixel_for_set;
+                render_data->points[i].y = y_pixel_for_set;
+                render_data->points[i].show = pixel_set_status;
+            }
+
+
+            // Ищем, что из буффера сигнала больше всего соответствует следуюшему пикселю
+            double zero_time = buffer->samples[update_start_idx].time;
+
+            double target_time = zero_time + i * pixel_time;
+
+            while (buffer->samples[next_s_index].time < target_time)
+            {
+                // Двигаемся, в поисках следующего индекса, разница с по времени 
+                // с сэмплом в котором будет приблизительно равна разнице
+                // по времени между пикселями 
+                next_s_index = (next_s_index + BUFFER_SIZE + 1) % BUFFER_SIZE;
+            }
+
+            // Присваиваемся по последнему принятому
+            curr_s_index = next_s_index;
+
+            // Сдвиг текущего индекса
+            prev_next_s_index = (next_s_index + BUFFER_SIZE - 1) % BUFFER_SIZE;
+        }
+
+
+        if (TEST_MODE_7)
+        {
+            printf("\n\nЗаполнились не до конца\n\n");
+        }
+    }
+
+
+    if (TEST_MODE_7)
+    {
+        printf("\n\nПостроили контекст для фиксированного времени!\n\n");
+    }
 }
+
 
 
 void build_scroll_render(Scope* used_scope, signal_render_ctx* render_data)
@@ -5198,37 +5632,45 @@ void scope_signal_info_gui_renew(Scope* used_scope)
 
 void draw_signal(Scope* used_scope, SDL_Renderer* renderer)
 {
-    if (!used_scope) return;
 
-    scope_render_ctx* r = &used_scope->scope_render_data;
-    signal_render_ctx* signal = &r->signal_render_data;
-
-    // Цвет линии сигнала (можешь сделать отдельный main_color)
-    SDL_Color color = r->main_color_5;
-
-    SDL_SetRenderDrawColor(
-
-        renderer,
-        color.r,
-        color.g,
-        color.b,
-        color.a
-        
-    );
-
-    // Рисуем точки
-    for (int i = 0; i < signal->size; i++)
+    if (TEST_MODE_7)
     {
-        signal_render_point* p = &signal->points[i];
+        printf("\n\nНачинаем рисовать сигнал!\n\n");
+    }
 
-        if (!p->show) continue;
+    if (!used_scope || !renderer)
+        return;
 
-        int signal_width = used_scope->scope_render_data.basic_border_thickness_2;
+    signal_render_ctx* signal =
+        &used_scope->scope_render_data.signal_render_data;
 
-        for (int i = - signal_width / 2; i == signal_width / 2; i++)
-        {
-            my_sdl_draw_pixel(renderer, p->x, p->y + i, color);
-        }
+    SDL_Color color = hex_to_sdl_color("#f60505", 255);
+    // или
+    // SDL_Color color = used_scope->scope_render_data.main_color_5;
+
+    const int thickness = 5;
+
+    for (int i = 0; i < signal->size - 1; i++)
+    {
+        signal_render_point* p1 = &signal->points[i];
+        signal_render_point* p2 = &signal->points[i + 1];
+
+        // Если одна из точек скрыта — не соединяем
+        if (!p1->show || !p2->show)
+            continue;
+
+        my_sdl_draw_line(
+            renderer,
+            p1->x, p1->y,
+            p2->x, p2->y,
+            thickness,
+            color
+        );
+    }
+
+    if (TEST_MODE_7)
+    {
+        printf("\n\nСигнал нарисован!\n\n");
     }
 }
 
@@ -5350,7 +5792,12 @@ void increase_frequency(Button* btn)
 void change_controlled_signal(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
+    
+    printf("signal changed");
 
+    used_scope->signal_control_data.type_of_controlled_signal = NOISED_CST;
+
+    printf("signal changed");
 
 }
 
@@ -5452,8 +5899,11 @@ void on_off_command(Button* btn)
         scope_peaks_ctx_clear(used_scope);
         scope_wave_pattern_detector_former_clear(used_scope);
         scope_wave_pattern_detector_clear(used_scope);
+
+
+        scope_screen_gui_clear(used_scope);
+
         
-        scope_screens_gui_renew_by_signal_data(used_scope);
 
         used_scope->scope_render_data.scope_on_off_button.pressed_color = used_scope->scope_render_data.main_color_5;
 
@@ -5746,9 +6196,110 @@ void scope_render(Scope* used_scope)
         used_scope->scope_render_data.gui_parameters.display_border_thickness,
         used_scope->scope_render_data.gui_parameters.display_border_color
 
+    );    
+
+    // Кнопки и пояснения
+
+    // Изменение масштаба значения сигнала
+
+    my_sdl_draw_filled_rect_bi(
+
+        used_scope->scope_render_data.renderer,
+        used_scope->scope_render_data.gui_parameters.value_scale_set_info_x_1,
+        used_scope->scope_render_data.gui_parameters.value_scale_set_info_y_1,
+        used_scope->scope_render_data.gui_parameters.value_scale_set_info_w_1,
+        used_scope->scope_render_data.gui_parameters.value_scale_set_info_h_1,
+        used_scope->scope_render_data.gui_parameters.value_scale_set_info_fill_color_1,
+        used_scope->scope_render_data.gui_parameters.value_scale_set_info_border_thickness_1,
+        used_scope->scope_render_data.gui_parameters.value_scale_set_info_border_color_1
+
     );
 
+    Textbox_render(&used_scope->scope_render_data.change_value_scale_instruction_textbox, used_scope->scope_render_data.renderer);
 
+    Button_render(&used_scope->scope_render_data.decrease_value_scale_button, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.increase_value_scale_button, used_scope->scope_render_data.renderer);
+    
+
+
+    // Изменение масштаба времени сигнала
+
+    my_sdl_draw_filled_rect_bi(
+
+        used_scope->scope_render_data.renderer,
+        used_scope->scope_render_data.gui_parameters.time_scale_set_info_x_1,
+        used_scope->scope_render_data.gui_parameters.time_scale_set_info_y_1,
+        used_scope->scope_render_data.gui_parameters.time_scale_set_info_w_1,
+        used_scope->scope_render_data.gui_parameters.time_scale_set_info_h_1,
+        used_scope->scope_render_data.gui_parameters.time_scale_set_info_fill_color_1,
+        used_scope->scope_render_data.gui_parameters.time_scale_set_info_border_thickness_1,
+        used_scope->scope_render_data.gui_parameters.time_scale_set_info_border_color_1
+
+    );
+
+    Textbox_render(&used_scope->scope_render_data.change_time_scale_instruction_textbox, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.decrease_time_scale_button, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.increase_time_scale_button, used_scope->scope_render_data.renderer);
+
+
+    // Изменение амплитуды сигнала
+
+    my_sdl_draw_filled_rect_bi(
+
+        used_scope->scope_render_data.renderer,
+        used_scope->scope_render_data.gui_parameters.amplitude_set_info_x_1,
+        used_scope->scope_render_data.gui_parameters.amplitude_set_info_y_1,
+        used_scope->scope_render_data.gui_parameters.amplitude_set_info_w_1,
+        used_scope->scope_render_data.gui_parameters.amplitude_set_info_h_1,
+        used_scope->scope_render_data.gui_parameters.amplitude_set_info_fill_color_1,
+        used_scope->scope_render_data.gui_parameters.amplitude_set_info_border_thickness_1,
+        used_scope->scope_render_data.gui_parameters.amplitude_set_info_border_color_1
+
+    );
+
+    Textbox_render(&used_scope->scope_render_data.change_amplitude_instruction_textbox, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.decrease_amplitude_button, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.increase_amplitude_button, used_scope->scope_render_data.renderer);
+
+
+    // Изменение частоты сигнала
+
+    my_sdl_draw_filled_rect_bi(
+
+        used_scope->scope_render_data.renderer,
+        used_scope->scope_render_data.gui_parameters.frequency_set_info_x_1,
+        used_scope->scope_render_data.gui_parameters.frequency_set_info_y_1,
+        used_scope->scope_render_data.gui_parameters.frequency_set_info_w_1,
+        used_scope->scope_render_data.gui_parameters.frequency_set_info_h_1,
+        used_scope->scope_render_data.gui_parameters.frequency_set_info_fill_color_1,
+        used_scope->scope_render_data.gui_parameters.frequency_set_info_border_thickness_1,
+        used_scope->scope_render_data.gui_parameters.frequency_set_info_border_color_1
+
+    );
+
+    Textbox_render(&used_scope->scope_render_data.change_frequency_instruction_textbox, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.decrease_frequency_button, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.increase_frequency_button, used_scope->scope_render_data.renderer);
+
+
+    Button_render(&used_scope->scope_render_data.signal_change_button, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.mode_change_button, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.controlled_signal_play_button, used_scope->scope_render_data.renderer);
+
+    Button_render(&used_scope->scope_render_data.scope_on_off_button, used_scope->scope_render_data.renderer);
+
+
+
+    
     // Mesh + текстбоксы + свечение при включенных дисплеях
     if (used_scope->main_settings.current_state == ON_SS)
     {
@@ -6077,46 +6628,10 @@ void scope_render(Scope* used_scope)
             used_scope->scope_render_data.gui_parameters.v_line_16_color
                             
         );
-
+        
         
         // Обновляем графику под рендер (даже для первых точек)
         scope_screens_gui_renew_by_signal_data(used_scope);
-
-
-        // Заполняемся точками
-        signal_render_ctx* signal;
-
-        signal = &used_scope->scope_render_data.signal_render_data;
-
-
-        switch (used_scope->main_settings.current_mode)
-        {
-            case SCOPE_MODE_FIXED_TIME_STEP_SRM:
-
-                build_fixed_time_render(used_scope, signal);
-                break;
-
-
-            case SCOPE_MODE_SCROLL_TO_RIGHT_SRM:
-
-                build_scroll_render(used_scope, signal);   
-                break;
-
-
-            case SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM:
-            
-                build_fixed_period_render(used_scope, signal);
-                break;
-            
-
-            default:
-                break;
-
-        }
-
-        // Рисуем сигнал
-        draw_signal(used_scope, used_scope->scope_render_data.renderer);
-
 
         // Текущие текстбоксы информации о сигнале
         Textbox_render(&used_scope->scope_render_data.signal_scale_textbox, used_scope->scope_render_data.renderer);
@@ -6127,106 +6642,14 @@ void scope_render(Scope* used_scope)
 
         Textbox_render(&used_scope->scope_render_data.amplitude_textbox, used_scope->scope_render_data.renderer);
 
+
+
+        main_screen_renew(used_scope);
+
+        // Рисуем сигнал
+        draw_signal(used_scope, used_scope->scope_render_data.renderer);
+
     }
-    
-    // Кнопки и пояснения
-
-    // Изменение масштаба значения сигнала
-
-    my_sdl_draw_filled_rect_bi(
-
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.value_scale_set_info_x_1,
-        used_scope->scope_render_data.gui_parameters.value_scale_set_info_y_1,
-        used_scope->scope_render_data.gui_parameters.value_scale_set_info_w_1,
-        used_scope->scope_render_data.gui_parameters.value_scale_set_info_h_1,
-        used_scope->scope_render_data.gui_parameters.value_scale_set_info_fill_color_1,
-        used_scope->scope_render_data.gui_parameters.value_scale_set_info_border_thickness_1,
-        used_scope->scope_render_data.gui_parameters.value_scale_set_info_border_color_1
-
-    );
-
-    Textbox_render(&used_scope->scope_render_data.change_value_scale_instruction_textbox, used_scope->scope_render_data.renderer);
-
-    Button_render(&used_scope->scope_render_data.decrease_value_scale_button, used_scope->scope_render_data.renderer);
-
-    Button_render(&used_scope->scope_render_data.increase_value_scale_button, used_scope->scope_render_data.renderer);
-    
-
-
-    // Изменение масштаба времени сигнала
-
-    my_sdl_draw_filled_rect_bi(
-
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.time_scale_set_info_x_1,
-        used_scope->scope_render_data.gui_parameters.time_scale_set_info_y_1,
-        used_scope->scope_render_data.gui_parameters.time_scale_set_info_w_1,
-        used_scope->scope_render_data.gui_parameters.time_scale_set_info_h_1,
-        used_scope->scope_render_data.gui_parameters.time_scale_set_info_fill_color_1,
-        used_scope->scope_render_data.gui_parameters.time_scale_set_info_border_thickness_1,
-        used_scope->scope_render_data.gui_parameters.time_scale_set_info_border_color_1
-
-    );
-
-    Textbox_render(&used_scope->scope_render_data.change_time_scale_instruction_textbox, used_scope->scope_render_data.renderer);
-
-    Button_render(&used_scope->scope_render_data.decrease_time_scale_button, used_scope->scope_render_data.renderer);
-
-    Button_render(&used_scope->scope_render_data.increase_time_scale_button, used_scope->scope_render_data.renderer);
-
-
-    // Изменение амплитуды сигнала
-
-    my_sdl_draw_filled_rect_bi(
-
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.amplitude_set_info_x_1,
-        used_scope->scope_render_data.gui_parameters.amplitude_set_info_y_1,
-        used_scope->scope_render_data.gui_parameters.amplitude_set_info_w_1,
-        used_scope->scope_render_data.gui_parameters.amplitude_set_info_h_1,
-        used_scope->scope_render_data.gui_parameters.amplitude_set_info_fill_color_1,
-        used_scope->scope_render_data.gui_parameters.amplitude_set_info_border_thickness_1,
-        used_scope->scope_render_data.gui_parameters.amplitude_set_info_border_color_1
-
-    );
-
-    Textbox_render(&used_scope->scope_render_data.change_amplitude_instruction_textbox, used_scope->scope_render_data.renderer);
-
-    Button_render(&used_scope->scope_render_data.decrease_amplitude_button, used_scope->scope_render_data.renderer);
-
-    Button_render(&used_scope->scope_render_data.increase_amplitude_button, used_scope->scope_render_data.renderer);
-
-
-    // Изменение частоты сигнала
-
-    my_sdl_draw_filled_rect_bi(
-
-        used_scope->scope_render_data.renderer,
-        used_scope->scope_render_data.gui_parameters.frequency_set_info_x_1,
-        used_scope->scope_render_data.gui_parameters.frequency_set_info_y_1,
-        used_scope->scope_render_data.gui_parameters.frequency_set_info_w_1,
-        used_scope->scope_render_data.gui_parameters.frequency_set_info_h_1,
-        used_scope->scope_render_data.gui_parameters.frequency_set_info_fill_color_1,
-        used_scope->scope_render_data.gui_parameters.frequency_set_info_border_thickness_1,
-        used_scope->scope_render_data.gui_parameters.frequency_set_info_border_color_1
-
-    );
-
-    Textbox_render(&used_scope->scope_render_data.change_frequency_instruction_textbox, used_scope->scope_render_data.renderer);
-
-    Button_render(&used_scope->scope_render_data.decrease_frequency_button, used_scope->scope_render_data.renderer);
-
-    Button_render(&used_scope->scope_render_data.increase_frequency_button, used_scope->scope_render_data.renderer);
-
-
-    Button_render(&used_scope->scope_render_data.signal_change_button, used_scope->scope_render_data.renderer);
-
-    Button_render(&used_scope->scope_render_data.mode_change_button, used_scope->scope_render_data.renderer);
-
-    Button_render(&used_scope->scope_render_data.controlled_signal_play_button, used_scope->scope_render_data.renderer);
-
-    Button_render(&used_scope->scope_render_data.scope_on_off_button, used_scope->scope_render_data.renderer);
 
 }
 
