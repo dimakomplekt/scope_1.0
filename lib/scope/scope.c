@@ -4038,7 +4038,10 @@ void scope_gui_renew(Scope* used_scope)
 
     Textbox_set_content(&used_scope->scope_render_data.change_value_scale_instruction_textbox, "VS");
 
+
     // Уменьшение
+
+    used_scope->scope_render_data.decrease_value_scale_button.user_data = (void*)used_scope;
 
     used_scope->scope_render_data.decrease_value_scale_button.x = 
         used_scope->scope_render_data.gui_parameters.value_scale_set_info_x_1 + signatures_width * 0.5 + buttons_1_width * 0.5;
@@ -4067,6 +4070,8 @@ void scope_gui_renew(Scope* used_scope)
 
 
     // Увеличение
+
+    used_scope->scope_render_data.increase_value_scale_button.user_data = (void*)used_scope;
 
     used_scope->scope_render_data.increase_value_scale_button.x = 
         used_scope->scope_render_data.decrease_value_scale_button.x + buttons_1_width * 1;
@@ -4126,6 +4131,7 @@ void scope_gui_renew(Scope* used_scope)
 
 
     // Уменьшение
+    used_scope->scope_render_data.decrease_time_scale_button.user_data = (void*)used_scope;
 
     used_scope->scope_render_data.decrease_time_scale_button.x = 
         used_scope->scope_render_data.gui_parameters.time_scale_set_info_x_1 + signatures_width * 0.5 + buttons_1_width * 0.5;
@@ -4154,6 +4160,8 @@ void scope_gui_renew(Scope* used_scope)
 
 
     // Увеличение
+
+    used_scope->scope_render_data.increase_time_scale_button.user_data = (void*)used_scope;
 
     used_scope->scope_render_data.increase_time_scale_button.x = 
         used_scope->scope_render_data.decrease_time_scale_button.x + buttons_1_width * 1;
@@ -4213,6 +4221,8 @@ void scope_gui_renew(Scope* used_scope)
 
     // Уменьшение
 
+    used_scope->scope_render_data.decrease_amplitude_button.user_data = (void*)used_scope;
+
     used_scope->scope_render_data.decrease_amplitude_button.x = 
         used_scope->scope_render_data.gui_parameters.amplitude_set_info_x_1 + signatures_width * 0.5 + buttons_1_width * 0.5;
 
@@ -4240,6 +4250,8 @@ void scope_gui_renew(Scope* used_scope)
 
 
     // Увеличение
+
+    used_scope->scope_render_data.increase_amplitude_button.user_data = (void*)used_scope;
 
     used_scope->scope_render_data.increase_amplitude_button.x = 
         used_scope->scope_render_data.decrease_amplitude_button.x + buttons_1_width * 1;
@@ -4299,6 +4311,11 @@ void scope_gui_renew(Scope* used_scope)
 
     // Уменьшение
 
+    used_scope->scope_render_data.decrease_frequency_button.user_data = (void*)used_scope;
+
+    used_scope->scope_render_data.decrease_frequency_button.user_data = (void*)used_scope;
+
+
     used_scope->scope_render_data.decrease_frequency_button.x = 
         used_scope->scope_render_data.gui_parameters.frequency_set_info_x_1 + signatures_width * 0.5 + buttons_1_width * 0.5;
 
@@ -4326,6 +4343,8 @@ void scope_gui_renew(Scope* used_scope)
 
 
     // Увеличение
+
+    used_scope->scope_render_data.increase_frequency_button.user_data = (void*)used_scope;
 
     used_scope->scope_render_data.increase_frequency_button.x = 
         used_scope->scope_render_data.decrease_frequency_button.x + buttons_1_width * 1;
@@ -4356,6 +4375,9 @@ void scope_gui_renew(Scope* used_scope)
     
     // Смена сигнала
 
+
+    used_scope->scope_render_data.signal_change_button.user_data = (void*)used_scope;
+    
     used_scope->scope_render_data.signal_change_button.x = 
         used_scope->scope_render_data.decrease_frequency_button.x - buttons_1_width * 1;
 
@@ -4386,6 +4408,8 @@ void scope_gui_renew(Scope* used_scope)
 
     // Смена режима
 
+    used_scope->scope_render_data.mode_change_button.user_data = (void*)used_scope;
+
     used_scope->scope_render_data.mode_change_button.x = 
         used_scope->scope_render_data.decrease_frequency_button.x - buttons_1_width * 0;
 
@@ -4415,6 +4439,8 @@ void scope_gui_renew(Scope* used_scope)
 
     // Проигрывание сигнала
 
+    used_scope->scope_render_data.controlled_signal_play_button.user_data = (void*)used_scope;
+
     used_scope->scope_render_data.controlled_signal_play_button.x = 
         used_scope->scope_render_data.decrease_frequency_button.x + buttons_1_width * 1;
 
@@ -4443,6 +4469,7 @@ void scope_gui_renew(Scope* used_scope)
 
 
     // Включение-выключение осциллографа 
+    used_scope->scope_render_data.scope_on_off_button.user_data = (void*)used_scope;
 
     used_scope->scope_render_data.scope_on_off_button.x = 
         used_scope->scope_render_data.mode_change_button.x;
@@ -5763,6 +5790,8 @@ void decrease_amplitude(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
 
+    used_scope->signal_control_data.controlled_signal->amplitude -= 1;
+
 
 }
 
@@ -5770,6 +5799,7 @@ void increase_amplitude(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
 
+    used_scope->signal_control_data.controlled_signal->amplitude += 1;
 
 }
 
@@ -5778,15 +5808,16 @@ void decrease_frequency(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
 
-
+    used_scope->signal_control_data.controlled_signal->frequency -= 10;
 }
 
 void increase_frequency(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
 
-
+    used_scope->signal_control_data.controlled_signal->frequency += 10;
 }
+
 
 
 void change_controlled_signal(Button* btn)
