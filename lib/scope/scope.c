@@ -5793,7 +5793,9 @@ void change_controlled_signal(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
     
-    printf("signal changed");
+    printf("signal changing");
+
+    // scope_signal_buffer_clear(used_scope);
 
     used_scope->signal_control_data.type_of_controlled_signal = NOISED_CST;
 

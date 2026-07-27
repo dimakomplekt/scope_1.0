@@ -1324,7 +1324,7 @@ typedef struct scope_signal_control_ctx
     double prev_call_time;
 
     sin_generator_ctx* controlled_signal;                                   // Контролируемый сигнал (в данной версии - только синус)
-    controlled_signal_type type_of_controlled_signal;                       // Какой вид сигнала контролируем сейчас - КОСТЫЛЬ
+    volatile controlled_signal_type type_of_controlled_signal;              // Какой вид сигнала контролируем сейчас - КОСТЫЛЬ
 
     scope_buffer_ctx scope_buffer_data;                                     // Буфер осциллографа
 
