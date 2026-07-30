@@ -447,7 +447,7 @@ median_filter(samples, filtered, window=3);
 draw_cubic_spline(samples, count);  // рисует гладкие кривые
 
 // 5. Детект фронтов (для цифровых сигналов)
-detect_rising_edge(samples, threshold=2.5);
+detect_rising_edge(samples, treshold=2.5);
 
 ```
 

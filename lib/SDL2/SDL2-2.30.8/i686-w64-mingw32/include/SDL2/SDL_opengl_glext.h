@@ -616,7 +616,7 @@ GLAPI void APIENTRY glMultTransposeMatrixd (const GLdouble *m);
 #define GL_BLEND_SRC_RGB                  0x80C9
 #define GL_BLEND_DST_ALPHA                0x80CA
 #define GL_BLEND_SRC_ALPHA                0x80CB
-#define GL_POINT_FADE_THRESHOLD_SIZE      0x8128
+#define GL_POINT_FADE_TRESHOLD_SIZE      0x8128
 #define GL_DEPTH_COMPONENT16              0x81A5
 #define GL_DEPTH_COMPONENT24              0x81A6
 #define GL_DEPTH_COMPONENT32              0x81A7
@@ -4186,7 +4186,7 @@ GLAPI void APIENTRY glMaxShaderCompilerThreadsARB (GLuint count);
 #define GL_ARB_point_parameters 1
 #define GL_POINT_SIZE_MIN_ARB             0x8126
 #define GL_POINT_SIZE_MAX_ARB             0x8127
-#define GL_POINT_FADE_THRESHOLD_SIZE_ARB  0x8128
+#define GL_POINT_FADE_TRESHOLD_SIZE_ARB  0x8128
 #define GL_POINT_DISTANCE_ATTENUATION_ARB 0x8129
 typedef void (APIENTRYP PFNGLPOINTPARAMETERFARBPROC) (GLenum pname, GLfloat param);
 typedef void (APIENTRYP PFNGLPOINTPARAMETERFVARBPROC) (GLenum pname, const GLfloat *params);
@@ -8262,7 +8262,7 @@ GLAPI void APIENTRY glGetPixelTransformParameterfvEXT (GLenum target, GLenum pna
 #define GL_EXT_point_parameters 1
 #define GL_POINT_SIZE_MIN_EXT             0x8126
 #define GL_POINT_SIZE_MAX_EXT             0x8127
-#define GL_POINT_FADE_THRESHOLD_SIZE_EXT  0x8128
+#define GL_POINT_FADE_TRESHOLD_SIZE_EXT  0x8128
 #define GL_DISTANCE_ATTENUATION_EXT       0x8129
 typedef void (APIENTRYP PFNGLPOINTPARAMETERFEXTPROC) (GLenum pname, GLfloat param);
 typedef void (APIENTRYP PFNGLPOINTPARAMETERFVEXTPROC) (GLenum pname, const GLfloat *params);
@@ -12459,7 +12459,7 @@ GLAPI void APIENTRY glGetPixelTexGenParameterfvSGIS (GLenum pname, GLfloat *para
 #define GL_SGIS_point_parameters 1
 #define GL_POINT_SIZE_MIN_SGIS            0x8126
 #define GL_POINT_SIZE_MAX_SGIS            0x8127
-#define GL_POINT_FADE_THRESHOLD_SIZE_SGIS 0x8128
+#define GL_POINT_FADE_TRESHOLD_SIZE_SGIS 0x8128
 #define GL_DISTANCE_ATTENUATION_SGIS      0x8129
 typedef void (APIENTRYP PFNGLPOINTPARAMETERFSGISPROC) (GLenum pname, GLfloat param);
 typedef void (APIENTRYP PFNGLPOINTPARAMETERFVSGISPROC) (GLenum pname, const GLfloat *params);

@@ -143,22 +143,22 @@ Sigma — это оценка того, насколько сильно сигн
 
 ## TRESHOLD — динамическая граница события
 
-Threshold — это не фиксированный порог, а:
+treshold — это не фиксированный порог, а:
 
     адаптивная граница, отделяющая шум от значимого изменения
 
 Базовая формула
 
-    threshold = k * sigma;
+    treshold = k * sigma;
 
-Threshold — это:
+treshold — это:
 
     “насколько сильно сигнал должен шевельнуться, чтобы мы поверили, что это не шум”
 
 Как он ведёт себя
 
-    σ маленькая → threshold маленький → система чувствительная
-    σ большая → threshold большой → система “осторожная”
+    σ маленькая → treshold маленький → система чувствительная
+    σ большая → treshold большой → система “осторожная”
 
 Смысл k
 
@@ -167,7 +167,7 @@ Threshold — это:
     k = 2.0 → консервативная (только сильные события)
     k = 3.0+ → почти “финансовый фильтр истины”
 
-Главное свойство threshold
+Главное свойство treshold
 
     он не фиксирует события, он регулирует доверие к событиям
 
@@ -178,7 +178,7 @@ Threshold — это:
 
     EMA                 - где находится центр сигнала
     σ                   - насколько сигнал шумный
-    threshold           - насколько мы готовы верить отклонению
+    treshold           - насколько мы готовы верить отклонению
 
 
 Итоговая логика системы
@@ -189,9 +189,9 @@ Threshold — это:
           ↓
     σ → шумовая ширина
           ↓
-    threshold = k·σ
+    treshold = k·σ
           ↓
-    decision: if |x - EMA| > threshold → EVENT
+    decision: if |x - EMA| > treshold → EVENT
 
 
 Ключевая идея всей тройки
@@ -200,7 +200,7 @@ Threshold — это:
 
     EMA: “что считается нормой”
     σ: “насколько норма размыта”
-    threshold: “где заканчивается допустимое”
+    treshold: “где заканчивается допустимое”
 
 
 ## Общий паттерн пайплайна первичной обработки сигнала 
@@ -572,7 +572,7 @@ void scope_buffer_analysis_1(Scope* used_scope)
     float sigma = sqrt(sigma_squad);
 
     // =========================================================
-    // 4. DYNAMIC THRESHOLD (Расчет зоны неопределенности шума)
+    // 4. DYNAMIC TRESHOLD (Расчет зоны неопределенности шума)
     // =========================================================
     // Используем константный множитель k_treshold (например, 3.0f)
     filter_data->running_treshold = filter_data->k_treshold * sigma;
@@ -610,7 +610,7 @@ running_dc
 Это:
 
 sigma
-threshold = k * sigma
+treshold = k * sigma
 
 смысл:
 “можно ли этому вообще верить”
@@ -676,7 +676,7 @@ peak / trough / zero-cross
 
 σ — это просто “разброс”
 EMA — это просто “память” о среднем
-threshold — это просто “граница уверенности” в значениях близких к dc-offset
+treshold — это просто “граница уверенности” в значениях близких к dc-offset
 
 
 🧪 σ (sigma) — это не формула, а “раздражённость сигнала”
@@ -735,9 +735,9 @@ threshold — это просто “граница уверенности” в
 
         “подвинь мнение чуть-чуть в сторону нового наблюдения”
 
-🚧 threshold — это не число, а “разрешение на событие”
+🚧 treshold — это не число, а “разрешение на событие”
 
-    Statistical Thresholding
+    Statistical tresholding
 
     Вот здесь самое важное понимание.
 
@@ -747,7 +747,7 @@ threshold — это просто “граница уверенности” в
 
     Но у тебя уже не так.У тебя:
 
-        threshold = k * sigma;
+        treshold = k * sigma;
 
     значит:
 
@@ -771,7 +771,7 @@ threshold — это просто “граница уверенности” в
 
         “насколько мир дрожит”
 
-    3. threshold говорит:
+    3. treshold говорит:
 
         “насколько сильное событие мы вообще считаем событием”
 
@@ -806,7 +806,7 @@ threshold — это просто “граница уверенности” в
 
     **σ ** = насколько ты ошибаешься
 
-    **threshold** = когда ты перестаёшь сомневаться
+    **treshold** = когда ты перестаёшь сомневаться
 
 ```
 
@@ -831,7 +831,7 @@ ___
 
     running_dc        → центр сигнала
     sigma             → шум
-    threshold         → зона неопределённости
+    treshold         → зона неопределённости
 
 Это означает:
 
@@ -912,7 +912,7 @@ if (trend != prev_trend)
 
 ```c
 
-if (abs(x - running_dc) > threshold)
+if (abs(x - running_dc) > treshold)
 
 peak_valid = (peak - running_dc) > k * sigma;
 
@@ -945,7 +945,7 @@ float strength = (x - ctrl->running_dc) / (ctrl->sigma + 1e-6f);
 
 if (ctrl->trend == FALLING &&
     ctrl->trend_confidence > ctrl->min_confidence &&
-    strength > ctrl->k_threshold)
+    strength > ctrl->k_treshold)
 {
     ctrl->last_peak = ctrl->peak_candidate;
 }
@@ -1044,7 +1044,7 @@ void scope_buffer_analysis_2(Scope* used_scope)
     float sigma = sqrt(sigma_squad);
 
     // =========================================================
-    // 4. DYNAMIC THRESHOLD (Расчет зоны неопределенности шума)
+    // 4. DYNAMIC TRESHOLD (Расчет зоны неопределенности шума)
     // =========================================================
     // Используем константный множитель k_treshold (например, 3.0f)
     filter_data->running_treshold = filter_data->k_treshold * sigma;
@@ -1133,7 +1133,7 @@ void scope_buffer_analysis_2(Scope* used_scope)
         // -------------------------
         if (ctrl->prev_trend == 1)
         {
-            if (strength > ctrl->k_threshold)
+            if (strength > ctrl->k_treshold)
             {
                 ctrl->last_peak = ctrl->peak_candidate;
                 ctrl->last_peak_time = t;
@@ -1146,7 +1146,7 @@ void scope_buffer_analysis_2(Scope* used_scope)
         // -------------------------
         if (ctrl->prev_trend == -1)
         {
-            if (fabsf(strength) > ctrl->k_threshold)
+            if (fabsf(strength) > ctrl->k_treshold)
             {
                 ctrl->last_trough = ctrl->trough_candidate;
                 ctrl->last_trough_time = t;
@@ -1289,7 +1289,7 @@ if (fabsf(x - ctrl->min_candidate) < sigma)
 
 // фиксация впадины при смене тренда
 if (ctrl->trend == RISING &&
-    ctrl->min_confidence > ctrl->min_confidence_threshold)
+    ctrl->min_confidence > ctrl->min_confidence_treshold)
 {
     ctrl->last_min = ctrl->min_candidate;
 }
@@ -1370,7 +1370,7 @@ void scope_buffer_analysis_3(Scope* used_scope)
     {
         float drop = ctrl->max_candidate - x;
 
-        if (drop > ctrl->k_threshold * sigma &&
+        if (drop > ctrl->k_treshold * sigma &&
             ctrl->max_confidence > ctrl->min_confidence)
         {
             ctrl->last_confirmed_max = ctrl->max_candidate;
@@ -1408,7 +1408,7 @@ void scope_buffer_analysis_3(Scope* used_scope)
     {
         float rise = x - ctrl->min_candidate;
 
-        if (rise > ctrl->k_threshold * sigma && ctrl->min_confidence > ctrl->min_confidence_threshold)
+        if (rise > ctrl->k_treshold * sigma && ctrl->min_confidence > ctrl->min_confidence_treshold)
         {
             ctrl->last_confirmed_min = ctrl->min_candidate;
         }
@@ -1498,22 +1498,22 @@ Halfwave-детектор
 
 ### 3.1 Zero-cross - детектор
 
-Поскольку threshold задаётся симметрично относительно running_dc,
+Поскольку treshold задаётся симметрично относительно running_dc,
 время перехода через истинный ноль оценивается как среднее между
 моментами пересечения нижней и верхней границы зоны гистерезиса:
 
-    zero_cross_time = (t_dc_minus_threshold + t_dc_plus_threshold) / 2
+    zero_cross_time = (t_dc_minus_treshold + t_dc_plus_treshold) / 2
 
 Такое усреднение дополнительно уменьшает влияние шума и дрожания
 момента пересечения.
 
     Слой 1 — адаптация зоны
-    threshold = f(sigma)
+    treshold = f(sigma)
 
     Слой 2 — коррекция времени внутри зоны
     t_cross = (t_low + t_high) / 2
 
-И вот вместе они дают устойчивость. Качество детекции = функция (threshold, sigma, модель времени фронта)
+И вот вместе они дают устойчивость. Качество детекции = функция (treshold, sigma, модель времени фронта)
 
 
     Что считается завершённым переходом
@@ -1643,7 +1643,7 @@ Halfwave-детектор
             cleaned_zero_cross halfwave_zero_crosses[2];        // Две заполняемые точки полуволны
 
 
-            // При повторном входе в текущую границу (dc - threshold или dc + threshold)
+            // При повторном входе в текущую границу (dc - treshold или dc + treshold)
             // время перехода перезаписывается, так как фиксируется
             // последняя точка устойчивого входа в зону гистерезиса
 
@@ -1701,7 +1701,7 @@ Halfwave-детектор
             // -------------------------
             if (ctrl->prev_trend == 1)
             {
-                if (strength > ctrl->k_threshold)
+                if (strength > ctrl->k_treshold)
                 {
                     ctrl->last_peak = ctrl->peak_candidate;
                     ctrl->last_peak_time = t;
@@ -1714,7 +1714,7 @@ Halfwave-детектор
             // -------------------------
             if (ctrl->prev_trend == -1)
             {
-                if (fabsf(strength) > ctrl->k_threshold)
+                if (fabsf(strength) > ctrl->k_treshold)
                 {
                     ctrl->last_trough = ctrl->trough_candidate;
                     ctrl->last_trough_time = t;
@@ -2033,7 +2033,7 @@ int validate_period_repeats(
 
         float err = block_distance(buf, N, base_start, L);
 
-        if (err < 0.25f) // твой threshold
+        if (err < 0.25f) // твой treshold
         {
             repeats++;
         }
@@ -2372,23 +2372,23 @@ void scope_find_extreme(Scope* used_scope)
         ctrl->amplitude_estimate = 0.001f;
 
     // =========================================================
-    // 5. обновление threshold (не каждый вызов!)
+    // 5. обновление treshold (не каждый вызов!)
     // =========================================================
 
-    ctrl->threshold_update_accumulator++;
+    ctrl->treshold_update_accumulator++;
 
-    const int THRESHOLD_UPDATE_RATE = 10;
+    const int TRESHOLD_UPDATE_RATE = 10;
 
-    if (ctrl->threshold_update_accumulator >= THRESHOLD_UPDATE_RATE)
+    if (ctrl->treshold_update_accumulator >= TRESHOLD_UPDATE_RATE)
     {
-        float zc_threshold = ctrl->amplitude_estimate * 0.02f;
+        float zc_treshold = ctrl->amplitude_estimate * 0.02f;
 
-        if (zc_threshold < 0.001f)
-            zc_threshold = 0.001f;
+        if (zc_treshold < 0.001f)
+            zc_treshold = 0.001f;
 
-        ctrl->controlled_signal->current_treshold = zc_threshold;
+        ctrl->controlled_signal->current_treshold = zc_treshold;
 
-        ctrl->threshold_update_accumulator = 0;
+        ctrl->treshold_update_accumulator = 0;
     }
 }
 

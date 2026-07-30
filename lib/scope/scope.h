@@ -42,7 +42,7 @@
 #define FREQ_TO_SEPARATE_MODES_LB           230
 #define FREQ_TO_SEPARATE_MODES_HB           250
 
-#define ZC_THRESHOLD_START_VALUE 0.005f
+#define ZC_TRESHOLD_START_VALUE 0.005f
 
 #define MAX_ALLOWED_DEVIATION_IN_SIGMAS 3.0f
 
@@ -51,15 +51,15 @@
 #define MAX_RUNNING_BETHA 0.1000f
 
 
-#define MIN_K_THRESHOLD 0.5f
-#define MAX_K_THRESHOLD 3.0f
+#define MIN_K_TRESHOLD 0.5f
+#define MAX_K_TRESHOLD 3.0f
 
 #define MIN_MEDIAN_PART 0.1
 #define MAX_MEDIAN_PART 0.9
 
 
 #define BETHA_STEP          0.0005f
-#define K_THRESHOLD_STEP    0.01f
+#define K_TRESHOLD_STEP    0.01f
 #define OFFSET_BLEND_STEP   0.01f
 
 // ===== Scope mode enum =====
@@ -411,7 +411,7 @@ typedef struct wave_pattern_detector_former_ctx
     cleaned_zero_cross halfwave_zero_crosses[2];        // Две заполняемые точки полуволны
 
 
-    // При повторном входе в текущую границу (dc - threshold или dc + threshold)
+    // При повторном входе в текущую границу (dc - treshold или dc + treshold)
     // время перехода перезаписывается, так как фиксируется
     // последняя точка устойчивого входа в зону гистерезиса
 
@@ -1211,7 +1211,7 @@ typedef struct scope_render_ctx {
     // Цвета
 
     SDL_Color main_color_1;         // Background 1                     = hex_to_sdl_color("#a7f109", 255);
-    SDL_Color main_color_2;         // Boarders and lines and text      = hex_to_sdl_color("#040500", 255);
+    SDL_Color main_color_2;         // borders and lines and text      = hex_to_sdl_color("#040500", 255);
     SDL_Color main_color_3;         // Background 2                     = hex_to_sdl_color("#d3e8a6", 255);    
     SDL_Color main_color_4;         // Accent color                     = hex_to_sdl_color("#0d26e4", 255);
     SDL_Color main_color_5;         // Accent color                     = hex_to_sdl_color("#e63a14", 255);

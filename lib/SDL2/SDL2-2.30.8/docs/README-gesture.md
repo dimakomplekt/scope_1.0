@@ -27,7 +27,7 @@ As long as there is a dollar gesture assigned to a touch, every finger-up event 
 * event.dgesture.error      - the difference between the gesture template and the actual performed gesture. Lower error is a better match.
 * event.dgesture.numFingers - the number of fingers used to draw the stroke.
 
-Most programs will want to define an appropriate error threshold and check to be sure that the error of a gesture is not abnormally high (an indicator that no gesture was performed).
+Most programs will want to define an appropriate error treshold and check to be sure that the error of a gesture is not abnormally high (an indicator that no gesture was performed).
 
 
 

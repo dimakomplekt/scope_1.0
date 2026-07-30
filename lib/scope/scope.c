@@ -429,10 +429,10 @@ void scope_filter_init(Scope* used_scope)
     // чтобы running_treshold сразу имел адекватную зону мертвой полосы.
     // Если running_sigma_squad — это СКО, оставляем 0.01f. 
     // Если в структуре лежит квадрат (дисперсия), то пишем (0.01f * 0.01f).
-    filter->running_sigma_squad = 0.0001f; 
+    filter->running_sigma_squad = 4.0f; 
 
     // Множитель правила от 0.5 до 3 сигм (отсекает 99.7% случайных пиков шума)
-    filter->k_treshold = 1.5f;
+    filter->k_treshold = 0.5f;
     
     // Рассчитываем стартовый порог сразу при инициализации
     filter->running_treshold = filter->k_treshold * sqrtf(filter->running_sigma_squad);
@@ -929,24 +929,23 @@ void runtime_data_update(Scope* used_scope)
         // =========================================================
 
 
-            
-
         float sigma_squad = filter_data->running_sigma_squad;
         
-
         float diff;
 
         if (peaks_data->running_amplitude == 0.0 ||
             isnan(peaks_data->running_amplitude) ||
             isinf(peaks_data->running_amplitude))
         {
-            diff = 0.01f; // стартовый шум
+            diff = 1; // 0.01f; // стартовый шум
         }
         else
         {
             float signal_half_amplitude = peaks_data->running_amplitude * 0.5f;
 
-            diff = fmaxf(signal_half_amplitude * 0.01f, 0.01f);
+
+            // CHECK
+            diff = fmaxf(signal_half_amplitude * 0.2f, 0.01f);
         }
 
 
@@ -983,10 +982,10 @@ void runtime_data_update(Scope* used_scope)
         }
 
         // =========================================================
-        // 4. DYNAMIC THRESHOLD (Расчет зоны неопределенности шума)
+        // 4. DYNAMIC TRESHOLD (Расчет зоны неопределенности шума)
         // =========================================================
         // Используем константный множитель k_treshold (например, 3.0f)
-        filter_data->running_treshold = filter_data->k_treshold * sigma;
+        filter_data->running_treshold = 3; //; 1 + filter_data->k_treshold * sigma;
 
 
         if (TEST_MODE_2) {
@@ -3376,18 +3375,18 @@ void renew_filter(Scope* used_scope)
 
         if (dc_confidence < 0.8f)
         {
-            filter_parameters->k_treshold += K_THRESHOLD_STEP;
+            filter_parameters->k_treshold += K_TRESHOLD_STEP;
         }
         else if (dc_confidence > 0.95f)
         {
-            filter_parameters->k_treshold -= K_THRESHOLD_STEP;
+            filter_parameters->k_treshold -= K_TRESHOLD_STEP;
         }
 
 
         filter_parameters->k_treshold =fmaxf(
             
-            MIN_K_THRESHOLD,
-            fminf(MAX_K_THRESHOLD, filter_parameters->k_treshold)
+            MIN_K_TRESHOLD,
+            fminf(MAX_K_TRESHOLD, filter_parameters->k_treshold)
 
         );
 
@@ -5184,8 +5183,8 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
 
         if (enough_time_history)
         {
-            bool zc_found = (buffer->samples[next_idx].value > current_dc_offset &&
-                buffer->samples[curr_idx].value < current_dc_offset);
+            bool zc_found = (buffer->samples[next_idx].value < current_dc_offset &&
+                buffer->samples[curr_idx].value > current_dc_offset);
 
             if (zc_found)
                 enough_history = true;
@@ -5281,10 +5280,13 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
 
 
 
-    int signal_boarder_upside = whole_screen_signal / 2 - current_zero_shift;
-    int signal_boarder_downside = - whole_screen_signal / 2 + current_zero_shift;
+    float signal_border_upside = (whole_screen_signal / 2 - current_zero_shift - (gui_parameters->lines_thickness * pixel_signal));
+
+
+    float signal_border_downside = (- whole_screen_signal / 2 + current_zero_shift + (gui_parameters->lines_thickness * pixel_signal));
 
     
+
     if (TEST_MODE_7)
     {
         printf("\n\nФормирование\n\n");
@@ -5342,7 +5344,7 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
             {
                 render_data->points[i].x = x_0_pixel;
                 render_data->points[i].y = y_0_pixel;
-                render_data->points[i].show = true;
+                render_data->points[i].show = false;
 
                 // Пропускаем последующее дефолтное присваивание, переходим к логике генерации
                 // следующих значений на присвоение
@@ -5365,10 +5367,13 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
                 y_pixel_for_set = y_0_pixel + (int)(expected_signal_value / pixel_signal); // Присвоение ожидаемого времени на данный пиксель
 
 
+
                 if (
 
-                    (expected_signal_value > signal_boarder_downside) && 
-                    (expected_signal_value < signal_boarder_upside)
+                    (expected_signal_value > signal_border_downside) && 
+                    (expected_signal_value < signal_border_upside) &&
+                    !(i <= gui_parameters->lines_thickness * 3) &&                      // Не заходим на линии
+                    !(i >= render_data->size - gui_parameters->lines_thickness * 3)     // Не заходим на линии
 
                 )
                 {
@@ -5477,8 +5482,8 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
                 (curr_idx + 1) % BUFFER_SIZE;
 
 
-            if (buffer->samples[next_idx].value > current_dc_offset &&
-            buffer->samples[curr_idx].value < current_dc_offset)
+            if (buffer->samples[next_idx].value < current_dc_offset &&
+            buffer->samples[curr_idx].value > current_dc_offset)
             {   
                 history_finished_zc_found = true;
             }   
@@ -5580,8 +5585,8 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
 
                 if (
 
-                    (expected_signal_value > signal_boarder_downside) && 
-                    (expected_signal_value < signal_boarder_upside)
+                    (expected_signal_value > signal_border_downside) && 
+                    (expected_signal_value < signal_border_upside)
 
                 )
                 {

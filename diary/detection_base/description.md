@@ -147,7 +147,7 @@ RELOCK
 α_dc (динамический)
 α_mean (динамический)
 α_var
-threshold_factor k
+treshold_factor k
 confidence
 
 3.2) Заводим буферы:
@@ -192,13 +192,13 @@ x_ac = x - center
 
 5.3) Динамический порог:
 
-threshold = k * sqrt(var)
+treshold = k * sqrt(var)
 Детект событий:
 
 6.1) zero-crossing с гистерезисом:
 
-если x_ac > +threshold → state = POS
-если x_ac < -threshold → state = NEG
+если x_ac > +treshold → state = POS
+если x_ac < -treshold → state = NEG
 
 6.2) регистрация события:
 
@@ -207,7 +207,7 @@ threshold = k * sqrt(var)
 
 6.3) peak detection:
 
-локальные максимумы/минимумы с порогом threshold
+локальные максимумы/минимумы с порогом treshold
 Период:
 
 7.1) если event_buffer достаточен:
@@ -249,13 +249,13 @@ State machine:
 10.1) STABLE:
 
 low α (медленная адаптация)
-узкие thresholds
+узкие tresholds
 полные метрики доверенные
 
 10.2) DRIFT:
 
 средние α
-расширение threshold_factor
+расширение treshold_factor
 увеличение скорости адаптации
 
 10.3) RELOCK:
@@ -270,7 +270,7 @@ shrink/expand median_window
 
 11.1) триггеры:
 
-confidence < threshold_low
+confidence < treshold_low
 потеря регулярных zero-crossings
 резкое изменение var или dc
 пропадание периода
@@ -280,7 +280,7 @@ confidence < threshold_low
 переход в RELOCK
 не reset значений, а:
 увеличить α_dc, α_mean
-расширить threshold
+расширить treshold
 снизить влияние истории
 Переадаптация:
 

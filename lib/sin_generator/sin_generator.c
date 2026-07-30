@@ -60,9 +60,10 @@ void sin_generator_update(void)
 
 
         float noise =
-        
-            ((float)rand() / RAND_MAX - 0.5f) *
-            0.2f;
+            // От -0.1 до 0.1
+            ((float)rand() / RAND_MAX - 0.5f) * 0.2f *
+            // Умножились на x
+            1.0f;
 
 
         Oscillator_1.current_clean[i] = clean;
