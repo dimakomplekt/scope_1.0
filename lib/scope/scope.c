@@ -284,7 +284,7 @@ void scope_main_settings_init(Scope* used_scope)
     used_scope->main_settings.acessable_modes[2] = LIMIT_SRM;
 
     used_scope->main_settings.periods_to_display = 2;                                   // Базово - 2 периода для отображения (в режиме с фикс. кол-вом)
-    used_scope->main_settings.time_val_in_one_unit = 1;                                 // Базово - 1 (режим с фикс. разв)
+    used_scope->main_settings.time_val_in_one_unit = 1000;                              // Базово - 1000 (режим с фикс. разв)
     used_scope->main_settings.signal_val_in_one_unit = 1;                               // Базово - 1 (режим с фикс. разв)
     
     used_scope->main_settings.current_signal_units  = VOLTS_SU;                         // Базово - вольты 
@@ -559,9 +559,6 @@ void scope_gui_init(Scope* used_scope, SDL_Renderer* renderer)
     if (used_scope->scope_render_data.basic_border_thickness_1 < 1) used_scope->scope_render_data.basic_border_thickness_1 = 1;
     if (used_scope->scope_render_data.basic_border_thickness_2 < 1) used_scope->scope_render_data.basic_border_thickness_2 = 1;
 
-    // Базово - 1 вольт, 100 мс на единицу сетки
-    used_scope->scope_render_data.current_signal_scale = 2;
-    used_scope->scope_render_data.current_time_scale = 1000;
 
     // Базово - 0 по центру
     used_scope->scope_render_data.current_zero_shift = 0.0;
@@ -4703,7 +4700,7 @@ void scope_screens_gui_renew_by_signal_data(Scope* used_scope)
 
     const char* volt_unit;
 
-    float max_v = format_voltage(signal->measured_signal_characteristics.measured_max, &volt_unit);
+    float step_v = format_voltage(used_scope->main_settings.signal_val_in_one_unit, &volt_unit);
 
     const char* amp_unit;
     float amp = format_voltage(signal->measured_signal_characteristics.measured_amplitude, &amp_unit);
@@ -4717,7 +4714,7 @@ void scope_screens_gui_renew_by_signal_data(Scope* used_scope)
     if (ms->current_signal_units == VOLTS_SU)
     {
         char buf[64];
-        snprintf(buf, sizeof(buf), "SU: %.3f %s", max_v, volt_unit);
+        snprintf(buf, sizeof(buf), "SV: %.3f %s", step_v, volt_unit);
         Textbox_set_content(&render->signal_scale_textbox, buf);
     }
 
@@ -5036,7 +5033,7 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
 
     // Time for whole srceen
 
-    int time_scale = render_parameters->current_time_scale;
+    int time_scale = settings->time_val_in_one_unit;
 
     double time_unit_multiplier;
 
@@ -5082,7 +5079,7 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
 
     // Value for whole srceen
 
-    int signal_scale = render_parameters->current_signal_scale;
+    int signal_scale = settings->signal_val_in_one_unit;
 
     double signal_unit_multiplier;
 
@@ -5764,7 +5761,14 @@ void decrease_scope_value_scale(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
 
+    // Наоборот увеличиваем, чтобы уменьшиться в развертке
 
+    if (used_scope->main_settings.signal_val_in_one_unit != 100)
+    {
+        used_scope->main_settings.signal_val_in_one_unit += 1;
+
+        printf("Signal val in 1 unit now: %d\n\n", used_scope->main_settings.signal_val_in_one_unit);
+    }
 }
 
 void increase_scope_value_scale(Button* btn)
@@ -5772,6 +5776,13 @@ void increase_scope_value_scale(Button* btn)
     Scope* used_scope = (Scope*)btn->user_data;
 
 
+    // Наоборот уменьшаем, чтобы увеличиться в развертке
+    if (used_scope->main_settings.signal_val_in_one_unit != 1)
+    {
+        used_scope->main_settings.signal_val_in_one_unit -= 1;
+
+        printf("Signal val in 1 unit now: %d\n\n", used_scope->main_settings.signal_val_in_one_unit);
+    }
 }
 
 
@@ -5780,13 +5791,76 @@ void decrease_scope_time_scale(Button* btn)
     Scope* used_scope = (Scope*)btn->user_data;
 
 
+    switch (used_scope->main_settings.current_mode)
+    {
+
+        case SCOPE_MODE_FIXED_TIME_STEP_SRM:
+
+            if (used_scope->main_settings.time_val_in_one_unit != 1)
+            {
+                used_scope->main_settings.time_val_in_one_unit -= 100;
+            }
+            else
+            {
+
+            }
+
+
+            printf("Time val in 1 unit now: %d\n\n", used_scope->main_settings.time_val_in_one_unit);
+
+            break;
+        
+
+        case SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM:
+
+            // Current periods to show
+            int* periods_to_display = &used_scope->main_settings.periods_to_display;
+
+            if (*periods_to_display != 1) *periods_to_display -= 1;
+
+
+        default:
+            break;
+    }
+
 }
+
 
 void increase_scope_time_scale(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
 
 
+    switch (used_scope->main_settings.current_mode)
+    {
+
+        case SCOPE_MODE_FIXED_TIME_STEP_SRM:
+            
+            if (used_scope->main_settings.time_val_in_one_unit != 10000)
+            {
+                used_scope->main_settings.time_val_in_one_unit += 100;
+            }
+            else
+            {
+
+            }
+
+            printf("Time val in 1 unit now: %d\n\n", used_scope->main_settings.time_val_in_one_unit);
+
+            break;
+        
+
+        case SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM:
+
+            // Current periods to show
+            int* periods_to_display = &used_scope->main_settings.periods_to_display;
+
+            if (*periods_to_display != 8) *periods_to_display += 1;
+
+
+        default:
+            break;
+    }
 }
 
 

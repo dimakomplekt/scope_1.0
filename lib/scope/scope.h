@@ -1223,10 +1223,6 @@ typedef struct scope_render_ctx {
 
     int basic_pixels_quantity_in_equivalent_unit;
 
-    // Текущие масштабы для отображения (общее значение сигнала или времени на единицу сетки)
-    int current_signal_scale;
-    int current_time_scale;
-
     double current_zero_shift;
 
     // Флаг для апдейта объектов GUI при смене настроек
