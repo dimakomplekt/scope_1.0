@@ -8,6 +8,7 @@
 #define TEST_MODE_5 0 // Тест pattern-детектор пайплайна
 #define TEST_MODE_6 0 // Новый запуск анализа после on-off
 #define TEST_MODE_7 0 // Render волны
+#define TEST_MODE_8 1 // Смена режима отображения
 
 // =========================================================================================== IMPORT
 
@@ -167,7 +168,10 @@ static float format_frequency(float f, const char** unit)
     if (f >= 1e3f) { *unit = "kHz"; return f * 1e-3f; }
     if (f >= 1.0f)  { *unit = "Hz";  return f; }
 
+
+    // Base 
     *unit = "mHz";
+
     return f * 1e3f;
 }
 
@@ -185,7 +189,6 @@ static float format_period(float t, const char** unit)
 
 void format_time(Scope* used_scope, const char** unit)
 {
-    if (used_scope->main_settings.current_time_units == NANOSECONDS_TU)     { *unit = "ns"; }
     if (used_scope->main_settings.current_time_units == MICROSECONDS_TU)    { *unit = "mcs";}
     if (used_scope->main_settings.current_time_units == MILLISECONDS_TU)    { *unit = "ms"; }
     if (used_scope->main_settings.current_time_units == SECONDS_TU)         { *unit = "s";  }
@@ -256,9 +259,9 @@ void decrease_frequency(Button* btn);
 void increase_frequency(Button* btn);
 
 
-void change_scope_render_mode(Button* btn);
-
 void change_controlled_signal(Button* btn);
+
+void change_scope_render_mode(Button* btn);
 
 void play_controlled_signal(Button* btn);
 
@@ -279,18 +282,19 @@ void scope_main_settings_init(Scope* used_scope)
     used_scope->main_settings.current_state = OFF_SS;
     used_scope->main_settings.current_mode = SCOPE_MODE_FIXED_TIME_STEP_SRM;            // Базово - фикс
     
-    used_scope->main_settings.acessable_modes[0] = SCOPE_MODE_FIXED_TIME_STEP_SRM;
-    used_scope->main_settings.acessable_modes[1] = SCOPE_MODE_SCROLL_TO_RIGHT_SRM;
-    used_scope->main_settings.acessable_modes[2] = LIMIT_SRM;
 
     used_scope->main_settings.periods_to_display = 2;                                   // Базово - 2 периода для отображения (в режиме с фикс. кол-вом)
-    used_scope->main_settings.time_val_in_one_unit = 1000;                              // Базово - 1000 (режим с фикс. разв)
+    
+
+    used_scope->main_settings.current_signal_units  = VOLTS_SU;                         // Базово - вольты 
+    used_scope->main_settings.current_time_units = MILLISECONDS_TU;                     // Базово - миллисекунда (но переменная всегда в секундах)
+
+    used_scope->main_settings.current_time_in_unit_steps = TIUS_1_MS;
+    used_scope->main_settings.time_val_in_one_unit = 1;                                 // Базово - 1 (режим с фикс. разв)
     used_scope->main_settings.signal_val_in_one_unit = 1;                               // Базово - 1 (режим с фикс. разв)
     
-    used_scope->main_settings.current_signal_units  = VOLTS_SU;                         // Базово - вольты 
-    used_scope->main_settings.current_time_units = MICROSECONDS_TU;                     // Базово - микросекунды (но переменная всегда в секундах)
-    used_scope->main_settings.current_frequency_units = HERTZ_FU;                       // Базово - Герцы (но переменная всегда в Герцах)
-    
+
+
     // ===== Инициализация основных настроек ===== 
 
 
@@ -624,18 +628,18 @@ void scope_main_settings_clear(Scope* used_scope)
     used_scope->main_settings.current_state = OFF_SS;
     used_scope->main_settings.current_mode = SCOPE_MODE_FIXED_TIME_STEP_SRM;            // Базово - фикс
     
-    used_scope->main_settings.acessable_modes[0] = SCOPE_MODE_FIXED_TIME_STEP_SRM;
-    used_scope->main_settings.acessable_modes[1] = SCOPE_MODE_SCROLL_TO_RIGHT_SRM;
-    used_scope->main_settings.acessable_modes[2] = LIMIT_SRM;
-
     used_scope->main_settings.periods_to_display = 2;                                   // Базово - 2 периода для отображения (в режиме с фикс. кол-вом)
+    
+
+    used_scope->main_settings.current_signal_units  = VOLTS_SU;                         // Базово - вольты 
+    used_scope->main_settings.current_time_units = MICROSECONDS_TU;                     // Базово - микросекунды (но переменная всегда в секундах)
+
+
+    used_scope->main_settings.current_time_in_unit_steps = TIUS_1_MS;
     used_scope->main_settings.time_val_in_one_unit = 1;                                 // Базово - 1 (режим с фикс. разв)
     used_scope->main_settings.signal_val_in_one_unit = 1;                               // Базово - 1 (режим с фикс. разв)
     
-    used_scope->main_settings.current_signal_units  = VOLTS_SU;                         // Базово - вольты 
-    used_scope->main_settings.current_time_units = MICROSECONDS_TU;                     // Базово - микросекунды (но переменная всегда в секундах)
-    used_scope->main_settings.current_frequency_units = HERTZ_FU;                       // Базово - Герцы (но переменная всегда в Герцах)
-    
+
     // ===== Инициализация основных настроек ===== 
 
     // Не первый вызов (вкл - выкл)
@@ -4689,6 +4693,7 @@ void scope_screens_gui_renew_by_signal_data(Scope* used_scope)
     // =========================================================
 
     const char* freq_unit;
+
     float freq = format_frequency(signal->measured_signal_characteristics.measured_frequency, &freq_unit);
 
     const char* time_unit;
@@ -4777,44 +4782,6 @@ void scope_screens_gui_renew_by_signal_data(Scope* used_scope)
         └── 4. обновление UI текстбоксов
 
     */
-
-
-    // ===== Проверка частоты ===== 
-
-    float f = used_scope->signal_control_data.measured_signal_characteristics.measured_frequency;
-
-
-    // Очистка
-    ms->acessable_modes[0] = LIMIT_SRM;
-    ms->acessable_modes[1] = LIMIT_SRM;
-    ms->acessable_modes[2] = LIMIT_SRM;
-
-    if (f <= FREQ_TO_SEPARATE_MODES_LB)
-    {
-        ms->acessable_modes[0] = SCOPE_MODE_FIXED_TIME_STEP_SRM;
-        ms->acessable_modes[1] = SCOPE_MODE_SCROLL_TO_RIGHT_SRM;
-        ms->acessable_modes[2] = LIMIT_SRM;
-    }
-    
-    if (f >= FREQ_TO_SEPARATE_MODES_HB)
-    {
-        ms->acessable_modes[0] = SCOPE_MODE_FIXED_TIME_STEP_SRM;
-        ms->acessable_modes[1] = SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM;
-        ms->acessable_modes[2] = LIMIT_SRM;
-    }
-
-    // В промежутках останутся старые режимы
-
-
-    bool safe_old_mode = false;
-
-    for (int i = 0; i <= 2; i++)
-    {
-        if (ms->current_mode == ms->acessable_modes[i]) safe_old_mode = true;
-    }
-
-    if (!safe_old_mode) ms->current_mode = ms->acessable_modes[0];
-
 }
 
 
@@ -5039,10 +5006,6 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
 
     switch (settings->current_time_units)
     {
-        case NANOSECONDS_TU:
-
-            time_unit_multiplier = 1e-9;
-            break;
 
         case MICROSECONDS_TU:
 
@@ -5638,12 +5601,621 @@ void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data)
 
 void build_scroll_render(Scope* used_scope, signal_render_ctx* render_data)
 {
-
+    // NEXT TIME
 }
 
 void build_fixed_period_render(Scope* used_scope, signal_render_ctx* render_data)
 {
+    
+    if (TEST_MODE_7)
+    {
+        printf("\n\nНачинаем строить рендер-контекст для фиксированного количества периодов\n\n");
+    }
 
+    /*
+
+        Делаем всё то же самое, что и для фикс тайма, но просто опираемся на длительность
+        конкретного количества периодов и текущий масштаб сигнала. При этом вместо выдачи занчения времени 1 юнита
+        просто пишем, сколько периодов показываем
+
+    */
+
+    scope_main_settings_ctx* settings = &used_scope->main_settings;
+
+    scope_render_ctx* render_parameters = &used_scope->scope_render_data;
+    scope_gui_basic_parameters* gui_parameters = &used_scope->scope_render_data.gui_parameters;
+
+
+    scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
+
+
+    // ===== 1.0. BASIC DATA =====
+
+    // Size of the display
+
+    int width_pixels =
+
+        gui_parameters->display_width_units *
+        render_parameters->basic_pixels_quantity_in_equivalent_unit;
+
+
+    int height_pixels =
+
+        gui_parameters->display_height_units *
+        render_parameters->basic_pixels_quantity_in_equivalent_unit;
+
+
+
+    // Time for whole srceen
+
+
+    // Просто опираемся на длительность нужного количества периодов
+    double whole_screen_time = 
+
+        settings->periods_to_display *
+        used_scope->signal_control_data.measured_signal_characteristics.measured_period;
+
+
+    double display_unit_time = whole_screen_time / gui_parameters->display_width_units;
+    
+    double pixel_time = whole_screen_time / width_pixels;
+
+
+    // Value for whole srceen
+
+    int signal_scale = settings->signal_val_in_one_unit;
+
+    double signal_unit_multiplier;
+
+
+    switch (settings->current_signal_units)
+    {
+
+        case VOLTS_SU:
+            signal_unit_multiplier = 1;
+            break;
+        
+        default:
+            break;
+    }
+
+    
+    double whole_screen_signal =
+
+
+        gui_parameters->display_height_units *
+        signal_scale *
+        signal_unit_multiplier;
+
+
+    double display_unit_signal = whole_screen_signal / gui_parameters->display_height_units;
+    
+    double pixel_signal = whole_screen_signal / height_pixels;
+
+
+    if (TEST_MODE_7)
+    {
+        printf("\n\nСкан базовой даты\n\n");
+    }
+
+
+    // ===== 1.0 BASIC DATA =====
+
+
+    // ===== 2.0 Render buffer forming =====
+
+    scope_running_signal_data_ctx* running_data = &used_scope->signal_control_data.running_signal_characteristics;
+
+    float current_dc_offset = running_data->running_dc_offset;
+
+
+    // ============================================================================
+    // 2.0. Render buffer forming
+    // ============================================================================
+
+    // Последний доступный сэмпл (правая граница истории)
+    unsigned int newest_idx = (buffer->head + BUFFER_SIZE - 1) % BUFFER_SIZE;
+
+    double newest_time = buffer->samples[newest_idx].time;
+
+
+    // ----------------------------------------------------------------------------
+    // 2.1. Поиск левой границы временного окна
+    // ----------------------------------------------------------------------------
+    //
+    // Идём назад по кольцевому буферу, пока:
+    //
+    //  • либо не закончатся данные,
+    //  • либо не будет найден интервал времени,
+    //    достаточный для отображения всего экрана.
+    //
+    // В результате получаем:
+    //
+    //      window_start_idx
+    //
+    // который соответствует самой левой точке
+    // отображаемого временного окна.
+    //
+
+    int window_start_idx = newest_idx;
+
+    // Данные кончились ранее нахождения оптимальной точки вывода
+    bool history_finished = false;
+
+
+    // Найдена оптимальная стартовая точка:
+    // истории хватает на всё окно и найден ближайший
+    // восходящий Zero Crossing.
+    bool enough_history = false;
+
+
+    while (!history_finished && !enough_history)
+    {
+        window_start_idx--;
+
+        unsigned int curr_idx = (window_start_idx + BUFFER_SIZE) % BUFFER_SIZE;
+        unsigned int next_idx = (window_start_idx + BUFFER_SIZE + 1) % BUFFER_SIZE;
+
+        // Полное кольцо == реальный конец
+        history_finished = (buffer->samples[next_idx].time < buffer->samples[curr_idx].time);
+
+        // Дошли до охвата всего экрана
+        bool enough_time_history = buffer->samples[newest_idx].time - buffer->samples[curr_idx].time >= whole_screen_time;
+
+        if (enough_time_history)
+        {
+            bool zc_found = (buffer->samples[next_idx].value < current_dc_offset &&
+                buffer->samples[curr_idx].value > current_dc_offset);
+
+            if (zc_found)
+                enough_history = true;
+        }
+    }
+
+
+    if (TEST_MODE_7)
+    {
+        printf("\n\nМетод формирования буффераn\n");
+    }
+
+    // ----------------------------------------------------------------------------
+    // 2.2. Привязка окна к периоду сигнала
+    // ----------------------------------------------------------------------------
+    //
+    // Если истории хватает:
+    //
+    //      ищем ближайший восходящий Zero Crossing
+    //      левее window_start_idx.
+    //
+    // Если слева Zero Crossing отсутствует:
+    //
+    //      ищем ближайший восходящий Zero Crossing
+    //      правее window_start_idx.
+    //
+    // Если Zero Crossing отсутствует совсем:
+    //
+    //      render_start_idx = window_start_idx.
+    //
+    // В результате получаем:
+    //
+    //      render_start_idx
+    //
+    // Именно с него начинается отображение сигнала.
+    //
+
+
+
+    // Очистка прошлого буффер
+
+    // Max size
+    render_data->size = width_pixels;
+
+    // scope_screen_gui_clear(used_scope);
+
+
+    /*
+    
+        Знаем:
+        
+
+        double whole_screen_time =
+
+            gui_parameters->display_width_units *
+            time_scale *
+            time_unit_multiplier;
+
+        double display_unit_time = whole_screen_time / gui_parameters->display_width_units;
+        
+        double pixel_time = whole_screen_time / width_pixels;
+
+    
+        double whole_screen_signal =
+
+            gui_parameters->display_height_units *
+            signal_scale *
+            signal_unit_multiplier;
+
+        double display_unit_signal = whole_screen_signal / gui_parameters->display_height_units;
+        
+        double pixel_signal = whole_screen_signal / height_pixels ;
+
+
+        Знаем anhor points
+
+        Знаем RENDER_POINTS_BUFFER_SIZE
+
+        и знаем, сколько от него надо взять на заполнение текущего промежутка (просто current_width)
+
+        render->size = width_pixels;
+    */
+
+
+    // Опорные точки
+    anchor_points_ctx* display_anchors = &used_scope->scope_render_data.gui_parameters.screen_anchor_points;
+
+    unsigned int render_start_idx = window_start_idx;
+
+
+    float current_zero_shift = used_scope->scope_render_data.current_zero_shift;
+    int pixel_zero_shift = - current_zero_shift / pixel_signal; // (- for SDL логики)
+
+
+
+    float signal_border_upside = (whole_screen_signal / 2 - current_zero_shift - (gui_parameters->lines_thickness * pixel_signal));
+
+
+    float signal_border_downside = (- whole_screen_signal / 2 + current_zero_shift + (gui_parameters->lines_thickness * pixel_signal));
+
+    
+
+    if (TEST_MODE_7)
+    {
+        printf("\n\nФормирование\n\n");
+        printf("%f\n", pixel_signal);
+        printf("%u\n", pixel_zero_shift);
+    }
+
+    if (enough_history)
+    {   
+
+        if (TEST_MODE_7)
+        {
+            printf("\n\nДостаточно даты для рендера\n\n");
+        }
+
+        // Заполнение буффера до полного буффера с округлением ровного шага для рендеринга
+        unsigned int curr_s_index = render_start_idx;
+ 
+        unsigned int next_s_index = (curr_s_index + BUFFER_SIZE + 1) % BUFFER_SIZE;
+
+        unsigned int prev_next_s_index = (next_s_index + BUFFER_SIZE - 1) % BUFFER_SIZE;
+
+
+        // С учетом текущего offset
+        int x_0_pixel = display_anchors->CL.x;  
+        int y_0_pixel = display_anchors->CL.y + pixel_zero_shift;
+
+        // Значения следующего присваиваемого пикселя со сглаживанием
+        int x_pixel_for_set;
+        int y_pixel_for_set;
+        bool pixel_set_status = false;
+
+
+        if (TEST_MODE_7)
+        {
+            printf("\n\nНастроились\n\n");
+        }
+
+        // Проходим каждый пиксель
+        for (int i = 0; i < render_data->size; i++)
+        {
+            // Заполняем каждый пиксель, проходя по кольцу буффера, смещаясь на dt между пикселями с линейным
+            // слаживанием. Выставляем true или false в show, в зависимости от того, влезаем ли мы текущим значением 
+            // в область видимости дисплея
+
+            if (TEST_MODE_7)
+            {
+                printf("\nЗашли в for %u.\n", i);
+            }
+
+
+
+            // ===== Присваивание первого шага =====
+            if (i == 0)
+            {
+                render_data->points[i].x = x_0_pixel;
+                render_data->points[i].y = y_0_pixel;
+                render_data->points[i].show = false;
+
+                // Пропускаем последующее дефолтное присваивание, переходим к логике генерации
+                // следующих значений на присвоение
+                
+            }
+
+            else
+            {
+
+                // ===== Next со сглаживанием ====
+
+                // TODO: чек, может быть ещё есть какие варианты на сглаживание, кроме середины соседних точек буффера до и после зоны pixel_time_dt
+                float expected_signal_value = 0.5 * (buffer->samples[next_s_index].value + buffer->samples[prev_next_s_index].value);
+
+    
+                // Переводим ожидаемое значение в 
+
+                // Вывод следуюшего значения
+                x_pixel_for_set = x_0_pixel + i; // Простейший сдвиг - нам неважно, какое там было бы время реально
+                y_pixel_for_set = y_0_pixel + (int)(expected_signal_value / pixel_signal); // Присвоение ожидаемого времени на данный пиксель
+
+
+
+                if (
+
+                    (expected_signal_value > signal_border_downside) && 
+                    (expected_signal_value < signal_border_upside) &&
+                    !(i <= gui_parameters->lines_thickness * 3) &&                      // Не заходим на линии
+                    !(i >= render_data->size - gui_parameters->lines_thickness * 3)     // Не заходим на линии
+
+                )
+                {
+                    pixel_set_status = true;
+                }
+                else pixel_set_status = false;
+
+
+                // Присвоение
+
+                render_data->points[i].x = x_pixel_for_set;
+                render_data->points[i].y = y_pixel_for_set;
+                render_data->points[i].show = pixel_set_status;
+            }
+
+
+            // Ищем, что из буффера сигнала больше всего соответствует следуюшему пикселю
+
+            double zero_time = buffer->samples[render_start_idx].time;
+            double target_time = zero_time + i * pixel_time;
+
+            while (buffer->samples[next_s_index].time < target_time)
+            {
+                // Двигаемся, в поисках следующего индекса, разница с по времени 
+                // с сэмплом в котором будет приблизительно равна разнице
+                // по времени между пикселями 
+                next_s_index = (next_s_index + BUFFER_SIZE + 1) % BUFFER_SIZE;
+
+                if (TEST_MODE_7)
+                {
+                    printf("SEARCH");
+
+                }
+            }
+
+            // Присваиваемся по последнему принятому
+            curr_s_index = next_s_index;
+
+            // Сдвиг текущего индекса
+            prev_next_s_index = (next_s_index + BUFFER_SIZE - 1) % BUFFER_SIZE;
+
+
+                        
+            if (TEST_MODE_7)
+            {
+                printf(
+                    "pixel_time = %.12f\n"
+                    "zero_time  = %.12f\n"
+                    "target     = %.12f\n"
+                    "next_time  = %.12f\n",
+                    pixel_time,
+                    zero_time,
+                    target_time,
+                    buffer->samples[next_s_index].time
+                );
+            }
+        }
+
+
+        if (TEST_MODE_7)
+        {
+            printf("\n\nНАШЛИ и заполнились\n\n");
+        }
+
+
+
+        for (int i = 0; i < 100; i++)
+        {
+            if (TEST_MODE_7 && i < 100)
+            {
+                printf(
+                    "P[%3d]  x=%4d  y=%4d  show=%d\n",
+                    i,
+                    render_data->points[i].x,
+                    render_data->points[i].y,
+                    render_data->points[i].show
+                );
+            }
+        }
+    }
+
+
+    if (history_finished)
+    {
+        // TODO - добить
+        return;
+
+        if (TEST_MODE_7)
+        {
+            printf("\n\nСНедостаточно даты для рендера\n\n");
+        }
+
+
+        // Check zero cross position
+        bool history_finished_zc_found = false;
+
+        // С какой стороны кольца был найден render_start_idx
+        unsigned zc_idx = render_start_idx;
+
+        while ((zc_idx != newest_idx) && !history_finished_zc_found)
+        {
+
+            unsigned int curr_idx = zc_idx;
+
+            unsigned int next_idx =
+                (curr_idx + 1) % BUFFER_SIZE;
+
+
+            if (buffer->samples[next_idx].value < current_dc_offset &&
+            buffer->samples[curr_idx].value > current_dc_offset)
+            {   
+                history_finished_zc_found = true;
+            }   
+
+            zc_idx = next_idx;
+        }
+
+
+        int update_start_idx;
+
+        if (history_finished_zc_found)
+        {
+            // Заполнение буффера от ZC до new_idx с округлением ровного шага для рендеринга
+            update_start_idx = zc_idx;
+        }
+        else
+        {
+            // Заполнение буффера от базовой точки до new_idx с округлением ровного шага для рендеринга
+            update_start_idx = render_start_idx;
+        }
+
+
+        // Заполнение буффера до полного буффера с округлением ровного шага для рендеринга
+        unsigned int curr_s_index = update_start_idx;
+ 
+        unsigned int next_s_index = (curr_s_index + BUFFER_SIZE + 1) % BUFFER_SIZE;
+
+        unsigned int prev_next_s_index = (next_s_index + BUFFER_SIZE - 1) % BUFFER_SIZE;
+
+
+        // С учетом текущего offset
+        int x_0_pixel = display_anchors->CL.x;  
+        int y_0_pixel = display_anchors->CL.y + pixel_zero_shift;
+
+        // Значения следующего присваиваемого пикселя со сглаживанием
+        int x_pixel_for_set;
+        int y_pixel_for_set;
+        bool pixel_set_status = false;
+
+
+        // Разница между head буффера и текущим найденным стартом
+        int splitter_count;
+
+
+        if (newest_idx > curr_s_index)
+            splitter_count = (newest_idx - curr_s_index);
+
+        else 
+            splitter_count = (BUFFER_SIZE - curr_s_index + newest_idx);
+
+
+
+        // Проходим каждый пиксель
+        // Заполняемся до сплиттера
+        for (int i = splitter_count; i < render_data->size; i++)
+        {   
+                render_data->points[i].x = 0;
+                render_data->points[i].y = 0;
+                render_data->points[i].show = false;
+
+        }
+
+        // Проходим каждый пиксель
+        // Заполняемся до сплиттера
+        for (int i = 0; i < splitter_count; i++)
+        {
+            // Заполняем каждый пиксель, проходя по кольцу буффера, смещаясь на dt между пикселями с линейным
+            // слаживанием. Выставляем true или false в show, в зависимости от того, влезаем ли мы текущим значением 
+            // в область видимости дисплея
+
+
+            // ===== Присваивание первого шага =====
+            if (i == 0)
+            {
+                render_data->points[i].x = x_0_pixel;
+                render_data->points[i].y = y_0_pixel;
+                render_data->points[i].show = true;
+
+                // Пропускаем последующее дефолтное присваивание, переходим к логике генерации
+                // следующих значений на присвоение
+                
+            }
+
+            else
+            {
+
+                // ===== Next со сглаживанием ====
+
+                // TODO: чек, может быть ещё есть какие варианты на сглаживание, кроме середины соседних точек буффера до и после зоны pixel_time_dt
+                float expected_signal_value = 0.5 * (buffer->samples[next_s_index].value + buffer->samples[prev_next_s_index].value);
+
+    
+                // Переводим ожидаемое значение в 
+
+                // Вывод следуюшего значения
+                x_pixel_for_set = x_0_pixel + i; // Простейший сдвиг - нам неважно, какое там было бы время реально
+                y_pixel_for_set = y_pixel_for_set = y_0_pixel + (int)(expected_signal_value / pixel_signal); // Присвоение ожидаемого времени на данный пиксель
+
+
+                if (
+
+                    (expected_signal_value > signal_border_downside) && 
+                    (expected_signal_value < signal_border_upside)
+
+                )
+                {
+                    pixel_set_status = true;
+                }
+                else pixel_set_status = false;
+
+
+                // Присвоение
+
+                render_data->points[i].x = x_pixel_for_set;
+                render_data->points[i].y = y_pixel_for_set;
+                render_data->points[i].show = pixel_set_status;
+            }
+
+
+            // Ищем, что из буффера сигнала больше всего соответствует следуюшему пикселю
+            double zero_time = buffer->samples[update_start_idx].time;
+
+            double target_time = zero_time + i * pixel_time;
+
+            while (buffer->samples[next_s_index].time < target_time)
+            {
+                // Двигаемся, в поисках следующего индекса, разница с по времени 
+                // с сэмплом в котором будет приблизительно равна разнице
+                // по времени между пикселями 
+                next_s_index = (next_s_index + BUFFER_SIZE + 1) % BUFFER_SIZE;
+            }
+
+            // Присваиваемся по последнему принятому
+            curr_s_index = next_s_index;
+
+            // Сдвиг текущего индекса
+            prev_next_s_index = (next_s_index + BUFFER_SIZE - 1) % BUFFER_SIZE;
+        }
+
+
+        if (TEST_MODE_7)
+        {
+            printf("\n\nЗаполнились не до конца\n\n");
+        }
+    }
+
+
+    if (TEST_MODE_7)
+    {
+        printf("\n\nПостроили контекст для фиксированного количества периодов!\n\n");
+    }
 }
 
 
@@ -5771,6 +6343,7 @@ void decrease_scope_value_scale(Button* btn)
     }
 }
 
+
 void increase_scope_value_scale(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
@@ -5786,43 +6359,126 @@ void increase_scope_value_scale(Button* btn)
 }
 
 
+
+
 void decrease_scope_time_scale(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
 
 
-    switch (used_scope->main_settings.current_mode)
+    if (used_scope->main_settings.current_mode == SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM)
     {
+        // Current periods to show
+        int* periods_to_display = &used_scope->main_settings.periods_to_display;
 
-        case SCOPE_MODE_FIXED_TIME_STEP_SRM:
-
-            if (used_scope->main_settings.time_val_in_one_unit != 1)
-            {
-                used_scope->main_settings.time_val_in_one_unit -= 100;
-            }
-            else
-            {
-
-            }
-
-
-            printf("Time val in 1 unit now: %d\n\n", used_scope->main_settings.time_val_in_one_unit);
-
-            break;
-        
-
-        case SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM:
-
-            // Current periods to show
-            int* periods_to_display = &used_scope->main_settings.periods_to_display;
-
-            if (*periods_to_display != 1) *periods_to_display -= 1;
-
-
-        default:
-            break;
+        if (*periods_to_display != 1) *periods_to_display -= 1;
     }
 
+    else
+    {
+        used_scope->main_settings.current_time_in_unit_steps -= 1;
+
+        if (used_scope->main_settings.current_time_in_unit_steps == LOW_LIMIT_TIUS)
+        {
+            used_scope->main_settings.current_time_in_unit_steps = LOW_LIMIT_TIUS + 1;
+        }
+
+        if (used_scope->main_settings.current_time_in_unit_steps == HIGH_LIMIT_TIUS)
+        {
+            used_scope->main_settings.current_time_in_unit_steps = HIGH_LIMIT_TIUS - 1;
+        }
+
+
+        /*
+            LOW_LIMIT_TIUS,
+
+            TIUS_1_US
+            TIUS_10_US
+            TIUS_100_US
+            TIUS_500_US
+            TIUS_1_MS
+            TIUS_10_MS
+            TIUS_100_MS
+            TIUS_500_MS
+            TIUS_1_S
+            TIUS_2_S
+            TIUS_5_S
+
+            HIGH_LIMIT_TIUS
+                
+        */
+        switch (used_scope->main_settings.current_time_in_unit_steps)
+        {
+            case TIUS_1_US:
+
+                used_scope->main_settings.time_val_in_one_unit = 1;
+                used_scope->main_settings.current_time_units = MICROSECONDS_TU;
+                break;
+
+            case TIUS_10_US:
+
+                used_scope->main_settings.time_val_in_one_unit = 10;
+                used_scope->main_settings.current_time_units = MICROSECONDS_TU;
+                break;
+        
+            case TIUS_100_US:
+            
+                used_scope->main_settings.time_val_in_one_unit = 100;
+                used_scope->main_settings.current_time_units = MICROSECONDS_TU;
+                break;
+
+            case TIUS_500_US:
+
+                used_scope->main_settings.time_val_in_one_unit = 500;
+                used_scope->main_settings.current_time_units = MICROSECONDS_TU;
+                break;
+
+            case TIUS_1_MS:
+
+                used_scope->main_settings.time_val_in_one_unit = 1;
+                used_scope->main_settings.current_time_units = MILLISECONDS_TU;
+                break;
+
+            case TIUS_10_MS:
+
+                used_scope->main_settings.time_val_in_one_unit = 10;
+                used_scope->main_settings.current_time_units = MILLISECONDS_TU;
+                break;
+        
+            case TIUS_100_MS:
+            
+                used_scope->main_settings.time_val_in_one_unit = 100;
+                used_scope->main_settings.current_time_units = MILLISECONDS_TU;
+                break;
+
+            case TIUS_500_MS:
+
+                used_scope->main_settings.time_val_in_one_unit = 500;
+                used_scope->main_settings.current_time_units = MILLISECONDS_TU;
+                break;
+
+            case TIUS_1_S:
+
+                used_scope->main_settings.time_val_in_one_unit = 1;
+                used_scope->main_settings.current_time_units = SECONDS_TU;
+                break;
+        
+            case TIUS_2_S:
+            
+                used_scope->main_settings.time_val_in_one_unit = 2;
+                used_scope->main_settings.current_time_units = SECONDS_TU;
+                break;
+
+            case TIUS_5_S:
+
+                used_scope->main_settings.time_val_in_one_unit = 5;
+                used_scope->main_settings.current_time_units = SECONDS_TU;
+                break;
+
+            default:
+                break;
+        }
+    }
 }
 
 
@@ -5831,35 +6487,118 @@ void increase_scope_time_scale(Button* btn)
     Scope* used_scope = (Scope*)btn->user_data;
 
 
-    switch (used_scope->main_settings.current_mode)
+    if (used_scope->main_settings.current_mode == SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM)
     {
+        // Current periods to show
+        int* periods_to_display = &used_scope->main_settings.periods_to_display;
 
-        case SCOPE_MODE_FIXED_TIME_STEP_SRM:
-            
-            if (used_scope->main_settings.time_val_in_one_unit != 10000)
-            {
-                used_scope->main_settings.time_val_in_one_unit += 100;
-            }
-            else
-            {
+        if (*periods_to_display != 8) *periods_to_display += 1;
+    }
 
-            }
+    else
+    {
+        used_scope->main_settings.current_time_in_unit_steps += 1;
 
-            printf("Time val in 1 unit now: %d\n\n", used_scope->main_settings.time_val_in_one_unit);
+        if (used_scope->main_settings.current_time_in_unit_steps == LOW_LIMIT_TIUS)
+        {
+            used_scope->main_settings.current_time_in_unit_steps = LOW_LIMIT_TIUS + 1;
+        }
 
-            break;
+        if (used_scope->main_settings.current_time_in_unit_steps == HIGH_LIMIT_TIUS)
+        {
+            used_scope->main_settings.current_time_in_unit_steps = HIGH_LIMIT_TIUS - 1;
+        }
+
+
+        /*
+            LOW_LIMIT_TIUS,
+
+            TIUS_1_US
+            TIUS_10_US
+            TIUS_100_US
+            TIUS_500_US
+            TIUS_1_MS
+            TIUS_10_MS
+            TIUS_100_MS
+            TIUS_500_MS
+            TIUS_1_S
+            TIUS_2_S
+            TIUS_5_S
+
+            HIGH_LIMIT_TIUS
+                
+        */
+        switch (used_scope->main_settings.current_time_in_unit_steps)
+        {
+            case TIUS_1_US:
+
+                used_scope->main_settings.time_val_in_one_unit = 1;
+                used_scope->main_settings.current_time_units = MICROSECONDS_TU;
+                break;
+
+            case TIUS_10_US:
+
+                used_scope->main_settings.time_val_in_one_unit = 10;
+                used_scope->main_settings.current_time_units = MICROSECONDS_TU;
+                break;
         
+            case TIUS_100_US:
+            
+                used_scope->main_settings.time_val_in_one_unit = 100;
+                used_scope->main_settings.current_time_units = MICROSECONDS_TU;
+                break;
 
-        case SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM:
+            case TIUS_500_US:
 
-            // Current periods to show
-            int* periods_to_display = &used_scope->main_settings.periods_to_display;
+                used_scope->main_settings.time_val_in_one_unit = 500;
+                used_scope->main_settings.current_time_units = MICROSECONDS_TU;
+                break;
 
-            if (*periods_to_display != 8) *periods_to_display += 1;
+            case TIUS_1_MS:
 
+                used_scope->main_settings.time_val_in_one_unit = 1;
+                used_scope->main_settings.current_time_units = MILLISECONDS_TU;
+                break;
 
-        default:
-            break;
+            case TIUS_10_MS:
+
+                used_scope->main_settings.time_val_in_one_unit = 10;
+                used_scope->main_settings.current_time_units = MILLISECONDS_TU;
+                break;
+        
+            case TIUS_100_MS:
+            
+                used_scope->main_settings.time_val_in_one_unit = 100;
+                used_scope->main_settings.current_time_units = MILLISECONDS_TU;
+                break;
+
+            case TIUS_500_MS:
+
+                used_scope->main_settings.time_val_in_one_unit = 500;
+                used_scope->main_settings.current_time_units = MILLISECONDS_TU;
+                break;
+
+            case TIUS_1_S:
+
+                used_scope->main_settings.time_val_in_one_unit = 1;
+                used_scope->main_settings.current_time_units = SECONDS_TU;
+                break;
+        
+            case TIUS_2_S:
+            
+                used_scope->main_settings.time_val_in_one_unit = 2;
+                used_scope->main_settings.current_time_units = SECONDS_TU;
+                break;
+
+            case TIUS_5_S:
+
+                used_scope->main_settings.time_val_in_one_unit = 5;
+                used_scope->main_settings.current_time_units = SECONDS_TU;
+                break;
+
+            default:
+                break;
+        }
     }
 }
 
@@ -5869,16 +6608,19 @@ void decrease_amplitude(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
 
-    used_scope->signal_control_data.controlled_signal->amplitude -= 1;
 
+    if (used_scope->signal_control_data.controlled_signal->amplitude != 1)
+        used_scope->signal_control_data.controlled_signal->amplitude -= 1;
 
 }
+
 
 void increase_amplitude(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
 
-    used_scope->signal_control_data.controlled_signal->amplitude += 1;
+    if (used_scope->signal_control_data.controlled_signal->amplitude != 25)
+        used_scope->signal_control_data.controlled_signal->amplitude += 1;
 
 }
 
@@ -5887,14 +6629,139 @@ void decrease_frequency(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
 
-    used_scope->signal_control_data.controlled_signal->frequency -= 10;
+    if (used_scope->signal_control_data.controlled_signal->frequency != 10)
+        used_scope->signal_control_data.controlled_signal->frequency -= 10;
 }
+
 
 void increase_frequency(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
 
-    used_scope->signal_control_data.controlled_signal->frequency += 10;
+
+    if (used_scope->signal_control_data.controlled_signal->frequency != 20000)
+        used_scope->signal_control_data.controlled_signal->frequency += 10;
+}
+
+
+
+void change_scope_render_mode(Button* btn)
+{
+    Scope* used_scope = (Scope*)btn->user_data;
+
+    if (used_scope->main_settings.current_mode != LIMIT_SRM)
+    {
+        used_scope->main_settings.current_mode += 1;
+    }
+
+    else used_scope->main_settings.current_mode = 1;
+
+
+    if (TEST_MODE_8)
+    {
+        char* mode_names[] = {
+
+            "FIXED TIME MODE"
+            "SCROLL MODE",
+            "FIXED PERIOD MODE",
+        };
+
+        int curr_mode;
+
+        switch (used_scope->main_settings.current_mode)
+        {
+            case SCOPE_MODE_FIXED_TIME_STEP_SRM:
+
+                curr_mode = 0;
+                break;
+
+            case SCOPE_MODE_SCROLL_TO_RIGHT_SRM:
+
+                curr_mode = 1;
+                break;
+
+            case SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM:
+
+                curr_mode = 2;
+                break;
+
+            default:   
+
+                curr_mode = 0;
+                break;
+            
+        }
+
+        printf("\n\nПопытка смены режима рендера на: %s\n\n", mode_names[curr_mode]);
+    }
+
+
+    // Слишком большая частота для степ режима
+    // dx = f * Tдисплея * w / Nпер
+
+    const float MAX_SHIFT_PER_FRAME = 10.0f;
+
+    float screen_width = used_scope->scope_render_data.gui_parameters.display_width_units *
+        used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit;
+
+    float frame_time = 1.0f / 30.0f;
+
+    float time_coefficient;
+
+    switch (used_scope->main_settings.current_time_units)
+    {
+
+        case MICROSECONDS_TU:
+            time_coefficient = 1e-6;
+            break;
+
+        case MILLISECONDS_TU:
+            time_coefficient = 1e-3;
+            break;
+
+        case SECONDS_TU:
+            time_coefficient = 1.0f;
+            break;
+
+        default:
+            time_coefficient = 1.0f;
+            break;
+    }
+
+
+    float displayed_time = time_coefficient * used_scope->main_settings.time_val_in_one_unit *
+        used_scope->scope_render_data.gui_parameters.display_width_units;
+    
+
+    if (displayed_time <= 0.0f)
+    {
+        used_scope->main_settings.current_mode = 1;
+
+        if (TEST_MODE_8)
+        {
+            printf("\n\nСлишком маленькое время для рендера, сброс в режим 1\n\n");
+        }
+
+        return;
+    }
+
+
+    float shift_per_frame = screen_width * frame_time / displayed_time;
+
+    if (
+
+        (used_scope->main_settings.current_mode == SCOPE_MODE_SCROLL_TO_RIGHT_SRM) &&
+        (shift_per_frame > MAX_SHIFT_PER_FRAME)
+
+    )
+    {
+        used_scope->main_settings.current_mode += 1;
+
+        if (TEST_MODE_8)
+        {
+            printf("\n\nСлишком большая скорость сдвига для рендера, переход в режим фикс. периода\n\n");
+        }
+    }
 }
 
 
@@ -5910,14 +6777,6 @@ void change_controlled_signal(Button* btn)
     used_scope->signal_control_data.type_of_controlled_signal = NOISED_CST;
 
     printf("signal changed");
-
-}
-
-
-void change_scope_render_mode(Button* btn)
-{
-    Scope* used_scope = (Scope*)btn->user_data;
-
 
 }
 

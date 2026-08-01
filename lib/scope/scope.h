@@ -104,7 +104,6 @@ typedef enum signal_units
 typedef enum time_units
 {
 
-    NANOSECONDS_TU,
     MICROSECONDS_TU,
     MILLISECONDS_TU,
     SECONDS_TU,
@@ -113,6 +112,10 @@ typedef enum time_units
     
 } time_units;
 
+
+/*
+
+DEAD CODE NOW
 
 // Текущие единицы отображения частоты
 typedef enum frequency_units
@@ -126,6 +129,33 @@ typedef enum frequency_units
     LIMIT_FU
     
 } frequency_units;
+
+*/
+
+
+
+typedef enum time_in_unit_steps
+{
+    LOW_LIMIT_TIUS,
+
+    TIUS_1_US,
+    TIUS_10_US,
+    TIUS_100_US,
+    TIUS_500_US,
+
+    TIUS_1_MS,
+    TIUS_10_MS,
+    TIUS_100_MS,
+    TIUS_500_MS,
+
+    TIUS_1_S,
+    TIUS_2_S,
+    TIUS_5_S,
+
+    HIGH_LIMIT_TIUS
+
+} time_in_unit_steps;
+
 
 
 // Тип контролируемого сигнала - КОСТЫЛЬ ПОД ТЕКУЩУЮ ЗАДАЧУ
@@ -1288,21 +1318,24 @@ typedef struct scope_main_settings
     scope_state current_state;                      // Текущий режим
     
     scope_render_mode current_mode;                 // Режим
-    scope_render_mode acessable_modes[3];           // Доступные режимы (для итераций при переключениях)
+
+    // Количество периодов для отображения на 16 (в режиме с фикс. кол-вом)
+    int periods_to_display;
 
     // Текущие единицы измерения для отображения
     signal_units current_signal_units;              // Всегда вольты
     time_units current_time_units;                  // Переменная времени всегда в секундах, но на рендер адекватнее выводить в другом формате
-    frequency_units current_frequency_units;        // Переменная времени всегда в герцах, но на рендер адекватнее выводить в другом формате
 
-    // Сколько вольт в 1 юните (только целые числа для ровной развертки)
-    int signal_val_in_one_unit;
+
+    time_in_unit_steps current_time_in_unit_steps;
 
     // Сколько времени в 1 юните (только целые числа для ровной развертки) - согласование с current_time_units
     int time_val_in_one_unit;
 
-    // Количество периодов для отображения на 16 (в режиме с фикс. кол-вом)
-    int periods_to_display;
+    // Сколько вольт в 1 юните (только целые числа для ровной развертки)
+    int signal_val_in_one_unit;
+
+
 
 } scope_main_settings_ctx;
 
