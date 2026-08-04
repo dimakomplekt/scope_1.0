@@ -7,7 +7,7 @@
 
 
 #include "../lib/app_timer/app_timer.h"
-#include "../lib/sin_generator/sin_generator.h"
+#include "../lib/my_generator/my_generator.h"
 
 
 // =========================================================================================== IMPORT
@@ -48,6 +48,10 @@ int SDL_app_init(SDL_app_ctx* app, int w, int h, const char* title)
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0)
         return 0;
 
+    // AUDIO INIT
+    SDL_Init(SDL_INIT_AUDIO);
+
+    
     // SDL TTF INIT
     if (TTF_Init() != 0)
         return 0;
@@ -103,7 +107,7 @@ int SDL_app_init(SDL_app_ctx* app, int w, int h, const char* title)
 
     scope_init(&scope_1, app->renderer);
 
-    sin_generator_init(5.0, 300.0);
+    my_generator_init(5.0, 196.0);
     
     signal_check(&scope_1, &Oscillator_1);
 
@@ -178,9 +182,9 @@ void SDL_app_update(SDL_app_ctx* app)
 
 
 
-    const double STEP_120 = 1.0 / 120.0;
+    const double SIM_STEP = (double)(SIM_BUFFER_SIZE / SIM_SAMPLE_RATE);
 
-    if (curr_time - start_time_1 >= STEP_120)
+    if (curr_time - start_time_1 >= SIM_STEP)
     {
 
         GI_update();
@@ -188,7 +192,7 @@ void SDL_app_update(SDL_app_ctx* app)
 
         // Апдейт синуса на текущем simulation time
         // получаем 128 значений на отрезке времени 1 / 48000 с
-        sin_generator_update();
+        my_generator_update();
 
         wave_samples_generated = true;
 
@@ -198,7 +202,7 @@ void SDL_app_update(SDL_app_ctx* app)
 
         wave_samples_passed_to_scope = true;
 
-        start_time_1 +=  STEP_120;
+        start_time_1 +=  SIM_STEP;
     }
     
 
@@ -206,7 +210,7 @@ void SDL_app_update(SDL_app_ctx* app)
     {
         // Чек связности генератора и буффера
 
-        float* values_1 = sin_generator_get_clean();
+        float* values_1 = my_generator_get_clean();
 
         printf("\n\nScope signal value from generator:\n");
 

@@ -8,7 +8,7 @@
 #define TEST_MODE_5 0 // Тест pattern-детектор пайплайна
 #define TEST_MODE_6 0 // Новый запуск анализа после on-off
 #define TEST_MODE_7 0 // Render волны
-#define TEST_MODE_8 1 // Смена режима отображения
+#define TEST_MODE_8 0 // Смена режима отображения
 
 // =========================================================================================== IMPORT
 
@@ -17,7 +17,7 @@
 #include <stdlib.h>
 
 #include "../app_timer/app_timer.h"
-#include "../sin_generator/sin_generator.h"
+#include "../my_generator/my_generator.h"
 
 
 #include "../../src/global_data.h"
@@ -129,7 +129,7 @@ float detect_period(Scope* used_scope, int pattern_steps);
 
 
 // Определение степени различия между двумя полуволнами
-float halfwave_distance(halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwave_2);
+float halfwave_distance(Scope* used_scope, halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwave_2);
 
 
 float normalized_difference(float a, float b);
@@ -393,6 +393,16 @@ void scope_measured_signal_characteristics_init(Scope* used_scope)
 
     measured_data->current_confidence_to_running = 1.0f;     
 
+
+    measured_data->measured_periods.head = 0;
+    measured_data->measured_periods.count = 0;
+    
+    for (int i = 0; i < PERIOD_DETECTOR_BUFFER_SIZE / 4; i++)
+    {
+        measured_data->measured_periods.periods[i] = 0.0f;
+    }
+
+
     measured_data->measured_period = 0.0f;
     measured_data->measured_frequency = 0.0f;
 
@@ -417,7 +427,7 @@ void scope_filter_init(Scope* used_scope)
     // Мы закладываем время интеграции шума 0.005 с. При частоте дискретизации 48000
 
     // Количество сэмплов окна дисперсии N = 0.005 * 48000
-    // Betha = 2 / (N + 1)
+    // Betha = 2 / (N + 1) = 2 / (240 + 1) = 0.0083
 
     float noise_integration_time = 0.005f;
     float samples_in_noise_window = noise_integration_time * (float)SCOPE_SAMPLE_RATE;
@@ -433,7 +443,7 @@ void scope_filter_init(Scope* used_scope)
     // чтобы running_treshold сразу имел адекватную зону мертвой полосы.
     // Если running_sigma_squad — это СКО, оставляем 0.01f. 
     // Если в структуре лежит квадрат (дисперсия), то пишем (0.01f * 0.01f).
-    filter->running_sigma_squad = 4.0f; 
+    filter->running_sigma_squad = 0.01f * 0.01f; 
 
     // Множитель правила от 0.5 до 3 сигм (отсекает 99.7% случайных пиков шума)
     filter->k_treshold = 0.5f;
@@ -761,13 +771,13 @@ void scope_buffer_update(Scope* used_scope)
     {
         case CLEAN_CST:
 
-            value = sin_generator_get_clean();
+            value = my_generator_get_clean();
             break;
 
 
         case NOISED_CST:
 
-            value = sin_generator_get_noise();
+            value = my_generator_get_noise();
             break;
 
 
@@ -934,6 +944,13 @@ void runtime_data_update(Scope* used_scope)
         
         float diff;
 
+
+        if (TEST_MODE_2)
+        {
+            printf("Текущая амплитуда: %lf\n", (double)peaks_data->running_amplitude);
+        }
+
+
         if (peaks_data->running_amplitude == 0.0 ||
             isnan(peaks_data->running_amplitude) ||
             isinf(peaks_data->running_amplitude))
@@ -942,19 +959,22 @@ void runtime_data_update(Scope* used_scope)
         }
         else
         {
-            float signal_half_amplitude = peaks_data->running_amplitude * 0.5f;
+            float signal_amplitude = peaks_data->running_amplitude;
 
 
             // CHECK
-            diff = fmaxf(signal_half_amplitude * 0.2f, 0.01f);
+            // 3
+            diff = fmaxf(signal_amplitude * 0.1f, 0.1f);
         }
 
 
+        // 4
         float diff_squad = diff * diff;
 
 
         // Пересчёт через текущую бетту и dc-offset
 
+        // 0.0001 += 0.0083 * (4 - 0.0001) = 0.0333 
         sigma_squad += filter_data->running_betha * (diff_squad - sigma_squad);
 
 
@@ -968,8 +988,6 @@ void runtime_data_update(Scope* used_scope)
             sigma_squad = 0.0f;
         }
 
-
-        if (sigma_squad < 0.0f) sigma_squad = 0.0f;
 
         filter_data->running_sigma_squad = sigma_squad;
 
@@ -986,7 +1004,10 @@ void runtime_data_update(Scope* used_scope)
         // 4. DYNAMIC TRESHOLD (Расчет зоны неопределенности шума)
         // =========================================================
         // Используем константный множитель k_treshold (например, 3.0f)
-        filter_data->running_treshold = 3; //; 1 + filter_data->k_treshold * sigma;
+        // Первично 
+        //; 1 + filter_data->k_treshold * sigma;
+        filter_data->running_treshold = diff + filter_data->k_treshold * sigma;
+
 
 
         if (TEST_MODE_2) {
@@ -1018,6 +1039,7 @@ void runtime_detect_trends(Scope* used_scope, unsigned int curr_idx, unsigned in
     // Только что обновленный буффер
     scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
 
+
     if (buffer->count < 2) return;
 
     // Чекаем пики, выставляем всю дату в контроллере пиков
@@ -1026,6 +1048,7 @@ void runtime_detect_trends(Scope* used_scope, unsigned int curr_idx, unsigned in
     scope_running_signal_data_ctx* running_data = &used_scope->signal_control_data.running_signal_characteristics;
 
     scope_realtime_filtering_ctx* filter = &used_scope->signal_control_data.filter_ctx;
+
 
     // =========================================================
     // 0. RAW SIGNAL
@@ -1068,7 +1091,7 @@ void runtime_detect_trends(Scope* used_scope, unsigned int curr_idx, unsigned in
     float sigma = sqrt(filter->running_sigma_squad);
 
     float dx = curr_x - prev_x;
-    float trend_eps = 0.05f * sigma;
+    float trend_eps = 0.0005f * sigma;
 
     if ((fabsf(dx) < trend_eps)) curr_trend = STATIC_PT;
     else if (dx > 0.0f) curr_trend = RISING_PT;
@@ -1088,6 +1111,12 @@ void runtime_detect_trends(Scope* used_scope, unsigned int curr_idx, unsigned in
     bool trough_trend_status = false;
     bool trend_continuation_status = false;
 
+
+    if (TEST_MODE_3)
+    {
+        printf("\n\nTRANDS: %d %d\n", prev_trend, curr_trend);
+    }
+
     // Яма
     if (prev_trend == FALLING_PT && curr_trend == RISING_PT) trough_trend_status = true;
 
@@ -1097,6 +1126,27 @@ void runtime_detect_trends(Scope* used_scope, unsigned int curr_idx, unsigned in
     // Статичный тренд (2 подъема подряд, 2 опуска подряд, 2 равенства подряд)
     if (prev_trend == curr_trend) trend_continuation_status = true;
 
+
+    if (TEST_MODE_3) {
+
+        if (peak_trend_status)
+        {
+            printf("\n\n=== PEAK ===\n");
+            printf("prev_x = %f\n", prev_x);
+        }
+
+        if (trough_trend_status)
+        {
+            printf("\n\n=== TROUGH ===\n");
+            printf("prev_x = %f\n", prev_x);
+        }
+
+        if (trend_continuation_status)
+        {
+            printf("\n\n=== CONTINUATION ===\n");
+            printf("prev_x = %f\n", prev_x);
+        }
+    }
 
     // Проверка доверия к событию:
 
@@ -1156,17 +1206,22 @@ void runtime_detect_trends(Scope* used_scope, unsigned int curr_idx, unsigned in
         
     }
 
+
     // Новое значение - новый пик
     if (peak_trend_status)
     {
         // 1st step error handle
         if (peaks_data->running_max == -FLT_MAX) peaks_data->running_max = curr_x;
 
+
         // Прошлый кандидат становится пиком
-        peaks_data->last_peak = peaks_data->peak_candidate;
+        if (peaks_data->last_peak == -FLT_MAX) peaks_data->last_peak = curr_x;
+        else peaks_data->last_peak = peaks_data->peak_candidate;
 
         // Прошлый пик становится кандидатом
-        peaks_data->peak_candidate = prev_x; 
+        if (peaks_data->peak_candidate == -FLT_MAX) peaks_data->peak_candidate = curr_x;
+        else peaks_data->peak_candidate = prev_x; 
+
 
         // Запоминаем устойчивость тренда
         // в момент фиксации экстремума.
@@ -1178,7 +1233,7 @@ void runtime_detect_trends(Scope* used_scope, unsigned int curr_idx, unsigned in
 
         // Обновляем running_max только если
         // новый максимум получен при более устойчивом тренде.
-        bool curr_max_confidence_status = (peaks_data->trend_confidence > 80.0f); 
+        bool curr_max_confidence_status = (peaks_data->trend_confidence > 50.0f); 
 
         if ((current_max >= peaks_data->max_candidate) && curr_max_confidence_status)
         {   
@@ -1215,9 +1270,14 @@ void runtime_detect_trends(Scope* used_scope, unsigned int curr_idx, unsigned in
         // 1st step error handle
         if (peaks_data->running_min == FLT_MAX) peaks_data->running_min = curr_x;
         
+        // Прошлый кандидат становится ямой или текущее значение становится ямой на 1 шаге
+        if (peaks_data->last_trough == FLT_MAX) peaks_data->last_trough = curr_x;
+        else peaks_data->last_trough = peaks_data->trough_candidate;
 
-        peaks_data->last_trough = peaks_data->trough_candidate;
-        peaks_data->trough_candidate = prev_x; 
+        // Прошлый пик становится кандидатом или текущее значение становится кандидатом на 1 шаге
+        if (peaks_data->trough_candidate == FLT_MAX) peaks_data->trough_candidate = curr_x;
+        else peaks_data->trough_candidate  = prev_x;
+
 
         // Запоминаем устойчивость тренда
         // в момент фиксации экстремума.
@@ -1235,7 +1295,7 @@ void runtime_detect_trends(Scope* used_scope, unsigned int curr_idx, unsigned in
 
         // Обновляем running_min только если
         // новый минимум получен при более устойчивом тренде.
-        bool curr_min_confidence_status = (peaks_data->trend_confidence > 80.0f); 
+        bool curr_min_confidence_status = (peaks_data->trend_confidence > 50.0f); 
 
         if ((current_min <= peaks_data->min_candidate) && curr_min_confidence_status)
         {   
@@ -2198,13 +2258,64 @@ void detect_pattern_and_period(Scope* used_scope)
         
         }
 
-
         return;
     }
     else
     {
-        // Нашли период
-        used_scope->signal_control_data.measured_signal_characteristics.measured_period = detect_period(used_scope, pattern_steps);
+        // Нашли период - записали в буффер
+        measured_periods_buffer* measured_periods = &used_scope->signal_control_data.measured_signal_characteristics.measured_periods;
+
+        measured_periods->periods[measured_periods->head] = detect_period(used_scope, pattern_steps);
+
+        measured_periods->head = (measured_periods->head + 1) % (PERIOD_DETECTOR_BUFFER_SIZE / 4);
+
+        if (measured_periods->count < PERIOD_DETECTOR_BUFFER_SIZE / 4) measured_periods->count++;
+
+
+        // Прошлись по буфферу и вычислили среднее значение
+
+        float sum = 0.0f;
+
+        for (unsigned int i = 0; i < measured_periods->count; i++)
+        {
+            sum += measured_periods->periods[i];
+        }
+
+
+        float avg_period = 0.0f;
+
+        if (measured_periods->count > 0)
+        {
+            float min_period = FLT_MAX;
+            float max_period = -FLT_MAX;
+
+            for (unsigned int i = 0; i < measured_periods->count; i++)
+            {
+                float p = measured_periods->periods[i];
+
+                avg_period += p;
+
+                if (p < min_period) min_period = p;
+                if (p > max_period) max_period = p;
+            }
+
+            avg_period /= measured_periods->count;
+
+
+            // убираем совсем безумные выбросы
+            if (max_period > avg_period * 3.0f)
+            {
+                avg_period = 
+                    (avg_period * measured_periods->count - max_period) /
+                    (measured_periods->count - 1);
+            }
+        }
+
+
+        // Присвоились
+        used_scope->signal_control_data.measured_signal_characteristics.measured_period = avg_period;
+
+
 
         float freq = 1.0f / used_scope->signal_control_data.measured_signal_characteristics.measured_period;
 
@@ -2375,17 +2486,17 @@ int detect_pattern(Scope* used_scope)
             if (pattern_elements[j] != 0) continue;
 
             // Ищем разницу между полуволнами
-            float curr_waves_distance = halfwave_distance(&curr_halfwaves_for_detection[i], &curr_halfwaves_for_detection[j]);
+            float curr_waves_distance = halfwave_distance(used_scope, &curr_halfwaves_for_detection[i], &curr_halfwaves_for_detection[j]);
 
 
-            if (TEST_MODE_4) {
+            if (TEST_MODE_5) {
 
                 printf("Найденная дистанция полуволн: %f\n", curr_waves_distance);
                 
             }
 
             // Если она несущественна
-            if (curr_waves_distance < 0.25)
+            if (curr_waves_distance < 0.3)
             {   
                 // Записываем полуволну, как соответствующую текущему элементу паттерна
                 pattern_elements[j] = pattern_elements[i];
@@ -2468,6 +2579,10 @@ int detect_pattern(Scope* used_scope)
     // а не 6 или 4.
     //
     // =========================================================
+
+
+    /* Базовый алг - очень строгий, не работает на шумном сигнале
+
 
     int pattern_size = buffer->count;
 
@@ -2571,8 +2686,178 @@ int detect_pattern(Scope* used_scope)
 
     return best_pattern_len;
 
-    // ===== Анализ шаблона =====
+    */
 
+
+    // Ищем лучший паттерн
+
+    int pattern_size = buffer->count;
+
+    int best_pattern_len = 0;
+    float best_score = -1.0f;
+
+    if (TEST_MODE_5)
+    {
+        printf("Максимальная длина паттерна: %u\n", pattern_size);
+    }
+
+    // Если делать <=, то всегда будем получать 1.0 для массива размером count, 
+    // т.к. вторая половина - копия первой
+    for (int L = 2; L < pattern_size; L++)
+    {
+        int equal_elements = 0;
+        int compared_elements = 0;
+
+        // Сравниваем весь буфер.
+        //
+        // Например, если
+        //
+        //      L = 3
+        //
+        // то проверяются пары
+        //
+        //      0 ↔ 3
+        //      1 ↔ 4
+        //      2 ↔ 5
+        //      ...
+        //
+        // Если элементы совпали,
+        // увеличиваем счётчик совпадений.
+
+        for (int i = 0; i < pattern_size; i++)
+        {
+            compared_elements++;
+
+            if (pattern_elements[i] ==
+                pattern_elements[i + L])
+            {
+                equal_elements++;
+            }
+        }
+
+        float score =
+            (float)equal_elements /
+            (float)compared_elements;
+
+
+        if (TEST_MODE_5)
+        {
+            printf(
+                "L=%2d  score=%f (%d/%d)\n",
+                L,
+                score,
+                equal_elements,
+                compared_elements
+            );
+        }
+
+        // Нашли более качественный период.
+
+        if (score > best_score)
+        {
+            best_score = score;
+            best_pattern_len = L;
+
+
+            if (TEST_MODE_5)
+            {
+                printf("\nНовый лучший период!\n");
+            }
+
+
+            // Сразу заканчиваем поиск при большой уверенности
+            /*
+                if (score >= 0.999999f)
+                {
+                    best_pattern_len = L;
+                    best_score = score;
+                    break;
+                }
+            */  
+
+        }
+
+        // Если качество одинаковое,
+        // выбираем минимальный период.
+
+        else if (fabsf(score - best_score) < 1e-6f &&
+                L < best_pattern_len)
+        {
+            best_pattern_len = L;
+        }
+    }
+
+    if (TEST_MODE_5)
+    {
+        printf("\n");
+        printf("Лучший период = %d\n", best_pattern_len);
+        printf("Качество      = %f\n", best_score);
+    }
+
+    // TEST
+    // return best_pattern_len;
+
+    // Ищем медианный паттерн
+
+    int median_pattern_len = 0;
+    int best_repeat_count = 0;
+
+    for (int L = 2; L < pattern_size / 2; L++)
+    {
+        int repeat_count = 1;
+
+        while (repeat_count * L + L <= pattern_size)
+        {
+            bool equal = true;
+
+            for (int k = 0; k < L; k++)
+            {
+                if (pattern_elements[k] !=
+                    pattern_elements[repeat_count * L + k])
+                {
+                    equal = false;
+                    break;
+                }
+            }
+
+            if (!equal)
+                break;
+
+            repeat_count++;
+        }
+
+        if (repeat_count > best_repeat_count)
+        {
+            best_repeat_count = repeat_count;
+            median_pattern_len = L;
+        }
+    }
+
+    // ===== Анализ шаблона =====
+    
+    // Возвращаем то, что кажется наиболее адекватным 
+
+
+    
+    // TEST
+    return median_pattern_len;
+
+
+    float repeat_coverage =
+    (float)(best_repeat_count * median_pattern_len) /
+    (float)pattern_size;
+
+    if (best_score > 0.9f)
+    {
+        return best_pattern_len;
+    }
+
+    if (repeat_coverage > 0.8f)
+    {
+        return median_pattern_len;
+    }
+
+    return best_pattern_len;
 }
 
 
@@ -2695,7 +2980,7 @@ float detect_period(Scope* used_scope, int pattern_steps)
 }
 
 
-float halfwave_distance(halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwave_2)
+float halfwave_distance(Scope* used_scope, halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwave_2)
 {
     // =========================================================
     // 1. AMPLITUDE DISTANCE
@@ -2733,18 +3018,19 @@ float halfwave_distance(halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwa
     // Сравниваем площади полуволн.
     // Нормировка делает метрику независимой от масштаба сигнала.
 
-    float area_dist =
 
-        fabsf(halfwave_1->halfwave_area -
-              halfwave_2->halfwave_area) /
+    float expected_area =
 
-        fmaxf(
-            fmaxf(fabsf(halfwave_1->halfwave_area),
-                  fabsf(halfwave_2->halfwave_area)),
-            1e-6f
-        );
+        0.5 * (used_scope->signal_control_data.peaks_ctx.running_amplitude)
+        * (halfwave_1->halfwave_full_time + halfwave_2->halfwave_full_time) * 0.5f;
 
+    float x =
+        fabsf(halfwave_1->halfwave_area - halfwave_2->halfwave_area ) /
+        fmaxf(expected_area, 1e-6f);
 
+    float area_dist = x / (1.0f + x);
+
+        
     // =========================================================
     // 4. SPEED DISTANCE
     // =========================================================
@@ -2773,10 +3059,10 @@ float halfwave_distance(halfwave_data_ctx* halfwave_1, halfwave_data_ctx* halfwa
     area_dist  = fminf(1.0f, area_dist);
     speed_dist = fminf(1.0f, speed_dist);
     
-    float total = //0.2f * amp_dist
-                  0.4f * time_dist
-                + 0.3f * area_dist
-                + 0.3f * speed_dist;
+    float total = 0.5f * amp_dist
+                + 0.4f * time_dist
+                + 0.05f * area_dist
+                + 0.05f * speed_dist;
 
     // =========================================================
     // 6. FINAL DISTANCE
@@ -6333,6 +6619,10 @@ void decrease_scope_value_scale(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
 
+
+    if (used_scope->main_settings.current_state != ON_SS) return;
+    
+
     // Наоборот увеличиваем, чтобы уменьшиться в развертке
 
     if (used_scope->main_settings.signal_val_in_one_unit != 100)
@@ -6347,6 +6637,9 @@ void decrease_scope_value_scale(Button* btn)
 void increase_scope_value_scale(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
+
+
+    if (used_scope->main_settings.current_state != ON_SS) return;
 
 
     // Наоборот уменьшаем, чтобы увеличиться в развертке
@@ -6366,6 +6659,9 @@ void decrease_scope_time_scale(Button* btn)
     Scope* used_scope = (Scope*)btn->user_data;
 
 
+    if (used_scope->main_settings.current_state != ON_SS) return;
+
+    
     if (used_scope->main_settings.current_mode == SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM)
     {
         // Current periods to show
@@ -6487,6 +6783,9 @@ void increase_scope_time_scale(Button* btn)
     Scope* used_scope = (Scope*)btn->user_data;
 
 
+    if (used_scope->main_settings.current_state != ON_SS) return;
+
+    
     if (used_scope->main_settings.current_mode == SCOPE_MODE_SHOW_N_SIGNAL_PERIODS_SRM)
     {
         // Current periods to show
@@ -6609,6 +6908,9 @@ void decrease_amplitude(Button* btn)
     Scope* used_scope = (Scope*)btn->user_data;
 
 
+    if (used_scope->main_settings.current_state != ON_SS) return;
+
+
     if (used_scope->signal_control_data.controlled_signal->amplitude != 1)
         used_scope->signal_control_data.controlled_signal->amplitude -= 1;
 
@@ -6618,6 +6920,10 @@ void decrease_amplitude(Button* btn)
 void increase_amplitude(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
+
+
+    if (used_scope->main_settings.current_state != ON_SS) return;
+
 
     if (used_scope->signal_control_data.controlled_signal->amplitude != 25)
         used_scope->signal_control_data.controlled_signal->amplitude += 1;
@@ -6629,6 +6935,10 @@ void decrease_frequency(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
 
+
+    if (used_scope->main_settings.current_state != ON_SS) return;
+
+
     if (used_scope->signal_control_data.controlled_signal->frequency != 10)
         used_scope->signal_control_data.controlled_signal->frequency -= 10;
 }
@@ -6637,6 +6947,9 @@ void decrease_frequency(Button* btn)
 void increase_frequency(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
+
+
+    if (used_scope->main_settings.current_state != ON_SS) return;
 
 
     if (used_scope->signal_control_data.controlled_signal->frequency != 20000)
@@ -6648,6 +6961,10 @@ void increase_frequency(Button* btn)
 void change_scope_render_mode(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
+
+
+    if (used_scope->main_settings.current_state != ON_SS) return;
+
 
     if (used_scope->main_settings.current_mode != LIMIT_SRM)
     {
@@ -6769,12 +7086,31 @@ void change_scope_render_mode(Button* btn)
 void change_controlled_signal(Button* btn)
 {
     Scope* used_scope = (Scope*)btn->user_data;
+
+
+    if (used_scope->main_settings.current_state != ON_SS) return;
     
+
     printf("signal changing");
 
     // scope_signal_buffer_clear(used_scope);
 
-    used_scope->signal_control_data.type_of_controlled_signal = NOISED_CST;
+    used_scope->signal_control_data.type_of_controlled_signal += 1;
+    
+
+    if (used_scope->signal_control_data.type_of_controlled_signal == LIMIT_CST)
+    {
+        used_scope->signal_control_data.type_of_controlled_signal = 1;
+    }
+
+    used_scope->signal_control_data.controlled_signal->clean_or_noise = 
+        !used_scope->signal_control_data.controlled_signal->clean_or_noise;
+
+
+    // TEST
+    used_scope->signal_control_data.controlled_signal->wave_type_number = 
+        (used_scope->signal_control_data.controlled_signal->wave_type_number + 1) % 10;
+
 
     printf("signal changed");
 
@@ -6786,6 +7122,12 @@ void play_controlled_signal(Button* btn)
     Scope* used_scope = (Scope*)btn->user_data;
 
 
+    if (used_scope->main_settings.current_state != ON_SS) return;
+
+
+    used_scope->signal_control_data.controlled_signal->audio_output_enabled = 
+        !used_scope->signal_control_data.controlled_signal->audio_output_enabled;
+    
 }
 
 
@@ -6808,6 +7150,9 @@ void on_off_command(Button* btn)
     }
     else 
     {
+
+        used_scope->signal_control_data.controlled_signal->audio_output_enabled = false;
+
 
         if (TEST_MODE_6)
         {
@@ -6975,7 +7320,7 @@ void scope_init(Scope* used_scope, SDL_Renderer* renderer)
 }
 
 
-void signal_check(Scope* used_scope, sin_generator_ctx* controlled_signal)
+void signal_check(Scope* used_scope, my_generator_ctx* controlled_signal)
 {
     // Подключаем сигнал к осциллографу
     if (!used_scope) return;

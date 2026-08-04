@@ -15,7 +15,7 @@ $SRC = @(
     "src/main.c",
     "src/app.c",
     "lib/scope/scope.c",
-    "lib/sin_generator/sin_generator.c",
+    "lib/my_generator/my_generator.c",
     "lib/app_timer/app_timer.c",
     "lib/SDL2/my_sdl_draw/my_sdl_draw.c",
     "lib/SDL2/global_inputs/global_inputs.c",

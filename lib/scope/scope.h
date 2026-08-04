@@ -6,7 +6,7 @@
 
 #include "../engine.h"
 
-#include "../sin_generator/sin_generator.h"
+#include "../my_generator/my_generator.h"
 
 #include "../SDL2/UI_elements/my_sdl_button/my_sdl_button.h"
 #include "../SDL2/UI_elements/my_sdl_textbox/my_sdl_textbox.h"
@@ -266,12 +266,26 @@ typedef struct scope_running_signal_data_ctx {
 } scope_running_signal_data_ctx;
 
 
+
+typedef struct measured_periods_buffer
+{
+
+    float periods[PERIOD_DETECTOR_BUFFER_SIZE / 4];
+
+    int head;
+    int count;
+
+} measured_periods_buffer;
+
+
 // Общий контекст measured-основных характеристик
 typedef struct scope_measured_signal_data_ctx {
 
     // Текущая степень доверия к running-характеристикам (под настройку alpha и betha
     // mean_part_in_offset, median_part_in_offset)
     float current_confidence_to_running;     
+
+    measured_periods_buffer measured_periods;
 
     float measured_period;       // Всегда в секундах
     float measured_frequency;    // Всегда в герцах
@@ -1352,7 +1366,7 @@ typedef struct scope_signal_control_ctx
 
     double prev_call_time;
 
-    sin_generator_ctx* controlled_signal;                                   // Контролируемый сигнал (в данной версии - только синус)
+    my_generator_ctx* controlled_signal;                                   // Контролируемый сигнал (в данной версии - только синус)
     volatile controlled_signal_type type_of_controlled_signal;              // Какой вид сигнала контролируем сейчас - КОСТЫЛЬ
 
     scope_buffer_ctx scope_buffer_data;                                     // Буфер осциллографа
@@ -1409,7 +1423,7 @@ void scope_init(Scope* used_scope, SDL_Renderer* renderer);
 
 
 // Присвоение сигнала осциллографу (сеттер)
-void signal_check(Scope* used_scope, sin_generator_ctx* controlled_signal);
+void signal_check(Scope* used_scope, my_generator_ctx* controlled_signal);
 
 // Апдейт общих характериктик системы каждый фрейм (получение
 // runtime характеристик + отдача данных детектору полуволн / детектору периода)

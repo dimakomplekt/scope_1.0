@@ -17,7 +17,7 @@
 
 #include "../lib/app_timer/app_timer.h"
 #include "../lib/scope/scope.h"
-#include "../lib/sin_generator/sin_generator.h"
+#include "../lib/my_generator/my_generator.h"
 
 #include "global_data.h"
 
