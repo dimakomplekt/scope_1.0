@@ -227,9 +227,6 @@ void build_scroll_render(Scope* used_scope, signal_render_ctx* render_data);    
 void build_fixed_period_render(Scope* used_scope, signal_render_ctx* render_data);  // Helper для построения даты на рендера сигнала
 
 
-void build_render(Scope* used_scope, signal_render_ctx* render_data);               // Helper для построения контекста данных для рендера сигнала
-
-
 void scope_signal_info_gui_renew(Scope* used_scope);                                // Обновление текстбоксов в дисплее информации
 
 
@@ -5890,6 +5887,7 @@ void build_scroll_render(Scope* used_scope, signal_render_ctx* render_data)
     // NEXT TIME
 }
 
+
 void build_fixed_period_render(Scope* used_scope, signal_render_ctx* render_data)
 {
     
@@ -6504,11 +6502,6 @@ void build_fixed_period_render(Scope* used_scope, signal_render_ctx* render_data
     }
 }
 
-
-void build_render(Scope* used_scope, signal_render_ctx* render_data)
-{
-
-}
 
 
 void scope_signal_info_gui_renew(Scope* used_scope)

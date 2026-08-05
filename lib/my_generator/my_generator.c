@@ -126,9 +126,37 @@ void my_generator_update(void)
             // -------------------------------------------------------------
             case 0:
             {
-                clean =
-                    Oscillator_1.amplitude *
-                    sinf(2.0f * M_PI * phase);
+                /*
+                    clean =
+                        Oscillator_1.amplitude *
+                        sinf(2.0f * M_PI * phase);
+                */
+
+                if (phase < 0.1f) clean = Oscillator_1.amplitude;
+                else if (phase < 0.2f)
+                {
+                    clean =
+                        Oscillator_1.amplitude *
+                        (4.0f * fabsf(phase - 0.5f) - 1.0f);
+                }
+                else if (phase < 0.4f)
+                {
+                    clean =
+                        -Oscillator_1.amplitude + Oscillator_1.amplitude *
+                        (4.0f * fabsf(phase - 0.5f) - 1.0f);
+                }
+
+                else if (phase < 0.6f)
+                {
+                    clean =
+                        -(-Oscillator_1.amplitude + Oscillator_1.amplitude *
+                        (4.0f * fabsf(phase - 0.5f) - 1.0f));
+                }
+                else if (phase < 0.7f) clean = Oscillator_1.amplitude * 0.5;
+                else if (phase < 0.8f) clean = - Oscillator_1.amplitude * 0.8;
+                else if (phase < 0.9f) clean = Oscillator_1.amplitude * 0.7;
+                else if (phase < 1.0f) clean = - Oscillator_1.amplitude * 0.3;
+
                 break;
             }
 
