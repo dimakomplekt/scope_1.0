@@ -1939,9 +1939,18 @@ static bool find_trigger_time(
     //
     // Поэтому ищем только внутри допустимого диапазона.
 
+
+    /*
+
     double latest_allowed_time =
         newest_time -
         (1.0 - RENDER_PRETRIGGER_PART) *
+        window_time;
+
+    */
+
+    double latest_allowed_time =
+        newest_time -
         window_time;
 
 
@@ -3332,7 +3341,6 @@ void decrease_scope_time_scale(Button* btn)
             TIUS_500_MS
             TIUS_1_S
             TIUS_2_S
-            TIUS_5_S
 
             HIGH_LIMIT_TIUS
                 
@@ -3396,12 +3404,6 @@ void decrease_scope_time_scale(Button* btn)
             case TIUS_2_S:
             
                 used_scope->main_settings.time_val_in_one_unit = 2;
-                used_scope->main_settings.current_time_units = SECONDS_TU;
-                break;
-
-            case TIUS_5_S:
-
-                used_scope->main_settings.time_val_in_one_unit = 5;
                 used_scope->main_settings.current_time_units = SECONDS_TU;
                 break;
 
@@ -3456,7 +3458,6 @@ void increase_scope_time_scale(Button* btn)
             TIUS_500_MS
             TIUS_1_S
             TIUS_2_S
-            TIUS_5_S
 
             HIGH_LIMIT_TIUS
                 
@@ -3520,12 +3521,6 @@ void increase_scope_time_scale(Button* btn)
             case TIUS_2_S:
             
                 used_scope->main_settings.time_val_in_one_unit = 2;
-                used_scope->main_settings.current_time_units = SECONDS_TU;
-                break;
-
-            case TIUS_5_S:
-
-                used_scope->main_settings.time_val_in_one_unit = 5;
                 used_scope->main_settings.current_time_units = SECONDS_TU;
                 break;
 

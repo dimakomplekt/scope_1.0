@@ -25,7 +25,7 @@
 // RAW LVL
 #define SCOPE_SAMPLE_RATE                   48000
 #define MIN_CONTROLLED_PERIOD               8
-#define SCOPE_BUFFER_STOCK                  4
+#define SCOPE_BUFFER_STOCK                  8
 
 #define FILTER_WARMUP_SAMPLES               24
 
@@ -238,7 +238,6 @@ typedef enum time_in_unit_steps
 
     TIUS_1_S,
     TIUS_2_S,
-    TIUS_5_S,
 
     HIGH_LIMIT_TIUS
 
