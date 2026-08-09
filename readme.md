@@ -28,6 +28,6 @@ ___
 
 ### Информация
 
-Полное описание и все базовые сведения - внутри [diary/detection_base](https://github.com/dimakomplekt/scope_1.0/tree/main/diary/detection_base)
+Полное описание и все базовые сведения - внутри [diary/detection_base](https://github.com/dimakomplekt/scope_1.0/tree/master/diary/detection_base)
 
 ___
