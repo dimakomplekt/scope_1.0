@@ -93,5 +93,4 @@ double simulation_timer_get_sample_step(void);
 extern simulation_timer Simulation_timer;
 
 
-
 // =========================================================================================== SIMULATION TIMER API

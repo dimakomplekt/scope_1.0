@@ -20,11 +20,11 @@
 
 
 
-// =========================================================================================== SCOPE MAIN SETTINGS
+// =========================================================================================== SCOPE MAIN SETTINGS DEFINES
 
 // RAW LVL
 #define SCOPE_SAMPLE_RATE                   48000
-#define MIN_CONTROLLED_PERIOD               2
+#define MIN_CONTROLLED_PERIOD               8
 #define SCOPE_BUFFER_STOCK                  4
 
 #define FILTER_WARMUP_SAMPLES               24
@@ -42,25 +42,113 @@
 #define FREQ_TO_SEPARATE_MODES_LB           230
 #define FREQ_TO_SEPARATE_MODES_HB           250
 
-#define ZC_TRESHOLD_START_VALUE 0.005f
+#define ZC_TRESHOLD_START_VALUE             0.005f
 
-#define MAX_ALLOWED_DEVIATION_IN_SIGMAS 3.0f
-
-
-#define MIN_RUNNING_BETHA 0.0001f
-#define MAX_RUNNING_BETHA 0.1000f
+#define MAX_ALLOWED_DEVIATION_IN_SIGMAS     3.0f
 
 
-#define MIN_K_TRESHOLD 0.5f
-#define MAX_K_TRESHOLD 3.0f
-
-#define MIN_MEDIAN_PART 0.1
-#define MAX_MEDIAN_PART 0.9
+#define MIN_RUNNING_BETHA                   0.0001f
+#define MAX_RUNNING_BETHA                   0.1000f
 
 
-#define BETHA_STEP          0.0005f
-#define K_TRESHOLD_STEP    0.01f
-#define OFFSET_BLEND_STEP   0.01f
+#define MIN_K_TRESHOLD                      0.5f
+#define MAX_K_TRESHOLD                      3.0f
+
+#define MIN_MEDIAN_PART                     0.1
+#define MAX_MEDIAN_PART                     0.9
+
+
+#define BETHA_STEP                          0.0005f
+#define K_TRESHOLD_STEP                     0.01f
+#define OFFSET_BLEND_STEP                   0.01f
+
+
+// ===== Настройки оценки шума и адаптивного порога =====
+
+// Время интеграции оценки мощности шума (по второй разности сигнала)
+#define NOISE_ESTIMATION_TIME               0.010f
+
+// Постоянная времени слежения running-медианы за постоянной составляющей.
+// Медиана обязана двигаться МЕДЛЕННЕЕ самого сигнала, иначе она "дышит"
+// вместе с волной и уводит за собой точки перехода через ноль
+#define DC_TRACKING_TIME                    0.500f
+
+// Ожидаемый полный размах сигнала (В) - нужен только для стартового
+// значения шага медианы до того, как измерена реальная амплитуда
+#define EXPECTED_SIGNAL_RANGE               10.0f
+
+// Максимально допустимый уход медианы за половину периода в долях амплитуды
+#define MAX_MEDIAN_DRIFT_PART               0.02f
+
+// Порог zero-cross снизу и сверху ограничивается долей текущей амплитуды,
+// чтобы на чистом сигнале он не схлопнулся в ноль, а на шумном не съел волну
+#define MIN_TRESHOLD_PART_OF_AMPLITUDE      0.010f
+#define MAX_TRESHOLD_PART_OF_AMPLITUDE      0.250f
+
+// Доля невязки measured/running, на которую разрешено сдвинуть центр за один
+// вызов renew_filter (прямая лёгкая коррекция DC)
+#define DC_CORRECTION_PART                  0.25f
+
+
+// ===== Настройки детектора паттерна и периода =====
+
+// Порог, ниже которого две полуволны считаются разными элементами паттерна
+#define HALFWAVE_MATCH_TRESHOLD             0.30f
+
+// Скорость подтягивания эталона класса полуволн к принятому элементу
+#define HALFWAVE_CLASS_BLEND                0.20f
+
+// Минимальное качество совпадения, при котором паттерн вообще принимается
+#define PATTERN_MIN_SCORE                   0.72f
+
+// Минимальное качество КАЖДОГО из двух свидетелей по отдельности.
+// Взвешенная сумма позволяет сильному свидетелю вытянуть слабого,
+// поэтому дополнительно требуем, чтобы согласились оба
+#define PATTERN_MIN_WITNESS                 0.60f
+
+// Сколько раз паттерн обязан повториться в буфере, чтобы считаться паттерном.
+// Два повтора - это ещё совпадение, три - уже закономерность
+#define PATTERN_MIN_REPEATS                 3
+
+// Минимальная доля буфера, которую должны покрывать целые повторы паттерна
+#define PATTERN_MIN_COVERAGE                0.60f
+
+// Насколько делитель может быть хуже кандидата, чтобы всё равно победить
+// (схлопывание кратностей: 4 -> 2, 6 -> 2 и т.д.)
+#define PATTERN_DIVISOR_TOLERANCE           0.06f
+
+// Веса символьной и временнОй автокорреляции в общей оценке
+#define PATTERN_SYMBOLIC_WEIGHT             0.60f
+#define PATTERN_TEMPORAL_WEIGHT             0.40f
+
+// Ниже этой относительной разницы новое значение периода не принимается
+// (гистерезис показаний, чтобы цифры на дисплее не мельтешили)
+#define PERIOD_HYSTERESIS_PART              0.02f
+
+// Жёсткий потолок окна measured-анализа в сэмплах.
+// Нужен, чтобы окно не зависело напрямую от измеренной частоты:
+// при ошибочно низкой частоте окно раздувалось до сотен тысяч сэмплов
+#define MEASURE_WINDOW_MAX_SAMPLES          16384
+
+
+// ===== Настройки триггера и рендера сигнала =====
+
+// Доля экрана слева от точки триггера (pre-trigger зона)
+#define RENDER_PRETRIGGER_PART              0.10f
+
+// Скорость экранного temporal-фильтра (persistence).
+// 0.0 - картинка застыла, 1.0 - фильтра нет
+#define RENDER_PERSISTENCE_BETHA            0.35f
+
+// Границы окна проверки гистерезиса триггера в сэмплах
+#define MIN_TRIGGER_HYSTERESIS_SAMPLES      4
+#define MAX_TRIGGER_HYSTERESIS_SAMPLES      512
+
+
+// =========================================================================================== SCOPE MAIN SETTINGS DEFINES
+
+
+// =========================================================================================== SCOPE MAIN SETTINGS
 
 // ===== Scope mode enum =====
 
@@ -235,8 +323,21 @@ typedef struct running_median_ctx {
 typedef struct scope_realtime_filtering_ctx {
 
     float running_betha;
-    
-    float running_sigma_squad;
+
+    float running_sigma_squad;          // Дисперсия ПОЛНОГО сигнала относительно dc_offset
+
+    // ===== Отдельная модель шума =====
+
+    // Дисперсия ТОЛЬКО шумовой составляющей, оценённая по второй разности сигнала.
+    // Полная дисперсия сигнала для периодического сигнала равна примерно A^2/2 и
+    // шум в ней не виден, поэтому порог zero-cross считается именно отсюда
+    float noise_sigma_squad;
+    float noise_betha;                  // Скорость интеграции оценки шума
+
+    float prev_value_1;                 // x[n-1] для расчёта второй разности
+    float prev_value_2;                 // x[n-2] для расчёта второй разности
+
+    int filter_warmup_counter;          // Счётчик прогрева фильтра (первые сэмплы недостоверны)
 
     // Коэффициент трешхолда
     float k_treshold;
@@ -261,7 +362,7 @@ typedef struct scope_running_signal_data_ctx {
     // Используются в детекторе полуволн для расчёта скорости волны
     // при пропусках шагов буффера из-за шума
     float last_not_noise_value;
-    float last_not_noise_time;
+    double last_not_noise_time;             // Время - только double, см. prev_clean_signal_time
 
 } scope_running_signal_data_ctx;
 
@@ -298,6 +399,11 @@ typedef struct scope_measured_signal_data_ctx {
     float measured_amplitude;
 
     float measured_dc_offset;
+
+    // ===== Диагностика детектора паттерна =====
+
+    float pattern_confidence;    // Итоговое качество совпадения паттерна [0..1]
+    int pattern_halfwaves;       // Длина найденного паттерна в полуволнах
 
 } scope_measured_signal_data_ctx;
 
@@ -399,7 +505,9 @@ typedef struct halfwave_data_ctx
     double start_time;
     double end_time;
 
+
     // По принятым данным 
+
     double halfwave_full_time;           // Примерное полное время полуволны
     
 
@@ -408,10 +516,21 @@ typedef struct halfwave_data_ctx
     float peak_value;                    // Максимум (по главному буфферу от head - до head.halfwave_full_time)
     float trough_value;                  // Минимум (по главному буфферу от head - до head.halfwave_full_time)
     
+
     // Площадь - с пренебрежением разницы по dx (по главному буфферу от head - до head.halfwave_full_time)
+
     float halfwave_area;                 // Примерная площадь этой полуволны
 
-    float halfwave_smoothed_speed;       // Примерная средняя скорость изменения значений в этой полуволне (просто EMA)
+
+    // Средняя скорость изменения значений внутри полуволны.
+    //
+    // Считается один раз в момент закрытия полуволны, как размах, делённый
+    // на длительность. Раньше это была EMA от мгновенных |dx/dt| с alpha 0.5,
+    // то есть величина почти целиком определялась последним сэмплом и
+    // от полуволны к полуволне скакала в разы даже на чистом сигнале
+    float halfwave_smoothed_speed;
+
+    int samples_in_halfwave;             // Сколько сэмплов реально попало в полуволну
 
 } halfwave_data_ctx;
 
@@ -508,7 +627,18 @@ typedef struct wave_pattern_detector_former_ctx
     // Для фиксации последней чистой точки
 
     float prev_clean_signal_value;          // Значение предыдущего сигнала с допустимым доверием
-    float prev_clean_signal_time;           // Время предыдущего сигнала с допустимым доверием
+
+    /*
+        Время - строго double.
+
+        Раньше здесь стоял float. Симуляционное время растёт монотонно от нуля,
+        и уже через 15 минут работы оно превышает 1000 с. У float в этой точке
+        шаг представления равен примерно 6e-5 с, а шаг дискретизации сигнала -
+        2.08e-5 с. То есть три соседних сэмпла склеивались в одно и то же время,
+        разность (curr_time - prev_time) обнулялась, и длительности полуволн
+        начинали врать тем сильнее, чем дольше работает программа.
+    */
+    double prev_clean_signal_time;          // Время предыдущего сигнала с допустимым доверием
 
 } wave_pattern_detector_former_ctx;
 
@@ -566,7 +696,25 @@ typedef struct signal_render_point
 {
 
     int x;
-    int y;
+    int y;          // Основная координата точки (центр диапазона пикселя)
+
+    // Границы min/max-децимации.
+    //
+    // Когда на один пиксель по горизонтали приходится больше одного сэмпла,
+    // рисовать одну точку нельзя - получится случайная выборка одного значения
+    // из сотни. Настоящие осциллографы рисуют вертикальный штрих от минимума
+    // до максимума, который сигнал прошёл за время этого пикселя
+    int y_min;
+    int y_max;
+
+
+    // Субпиксельная координата для temporal-фильтра.
+    //
+    // Здесь намеренно хранится float, чтобы не терять дробную часть
+    // положения точки между пикселями. В int координата переводится
+    // только после фильтрации.
+    float persistence_y;
+
     bool show;
 
 } signal_render_point;
@@ -577,6 +725,13 @@ typedef struct signal_render_ctx
 
     signal_render_point points[RENDER_POINTS_BUFFER_SIZE];        // динамический массив
     int size;                                                     // сколько точек (ширина дисплея)
+
+    // ===== Состояние развёртки =====
+
+    bool persistence_valid;      // Есть ли предыдущий кадр, пригодный для temporal-фильтра
+    bool trigger_locked;         // Была ли развёртка привязана к фронту в этом кадре
+
+    double last_trigger_time;    // Время последнего принятого триггера (сек)
 
 } signal_render_ctx;
 
@@ -1255,7 +1410,7 @@ typedef struct scope_render_ctx {
     // Цвета
 
     SDL_Color main_color_1;         // Background 1                     = hex_to_sdl_color("#a7f109", 255);
-    SDL_Color main_color_2;         // borders and lines and text      = hex_to_sdl_color("#040500", 255);
+    SDL_Color main_color_2;         // borders and lines and text       = hex_to_sdl_color("#040500", 255);
     SDL_Color main_color_3;         // Background 2                     = hex_to_sdl_color("#d3e8a6", 255);    
     SDL_Color main_color_4;         // Accent color                     = hex_to_sdl_color("#0d26e4", 255);
     SDL_Color main_color_5;         // Accent color                     = hex_to_sdl_color("#e63a14", 255);
@@ -1417,6 +1572,19 @@ typedef struct Scope {
 
 
 // =========================================================================================== SCOPE API
+
+/*
+
+    Реализация осциллографа разнесена по двум .c файлам при одном общем хедере:
+
+        scope_logic.c   - время, буфер, анализ сигнала, детекторы, фильтр, API объекта
+        scope_gui.c     - геометрия корпуса, кнопки и их коллбеки, подготовка развёртки, рендер
+
+    Всё, чем эти два файла обмениваются между собой, объявлено в приватном
+    заголовке scope_internal.h. Он НЕ предназначен для подключения в app -
+    приложению по-прежнему достаточно одного scope.h.
+
+*/
 
 // Инициализация осциллографа
 void scope_init(Scope* used_scope, SDL_Renderer* renderer);

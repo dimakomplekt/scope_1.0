@@ -1,4 +1,4 @@
-// scope_internal.h
+        // scope_internal.h
 
 #pragma once
 
@@ -158,24 +158,26 @@ void signal_slow_analysis(Scope* used_scope);
 
 // =========================================================================================== SCOPE GUI (scope_gui.c)
 
-void scope_gui_renew(Scope* used_scope);                                            // Обновление графики осциллографа
 
-void scope_screens_gui_renew_by_signal_data(Scope* used_scope);                     // Обновление текстбоксов по данным сигнала
+void scope_gui_renew(Scope* used_scope);                                                    // Обновление графики осциллографа
 
-void main_screen_renew(Scope* used_scope);                                          // Обновление данных для рендера сигнала
+void scope_screens_gui_renew_by_signal_data(Scope* used_scope);                             // Обновление текстбоксов по данным сигнала
 
-
-void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data);    // Развёртка с фикс. временем на деление
-
-void build_scroll_render(Scope* used_scope, signal_render_ctx* render_data);        // Развёртка roll (самописец)
-
-void build_fixed_period_render(Scope* used_scope, signal_render_ctx* render_data);  // Развёртка с фикс. кол-вом периодов
+void main_screen_renew(Scope* used_scope);                                                  // Обновление данных для рендера сигнала
 
 
-void draw_signal(Scope* used_scope, SDL_Renderer* renderer);                        // Функция рендеринга сигнала
+void build_fixed_time_render(Scope* used_scope, signal_render_ctx* render_data);            // Развёртка с фикс. временем на деление
+
+void build_scroll_render(Scope* used_scope, signal_render_ctx* render_data);                // Развёртка roll (самописец)
+
+void build_fixed_period_render(Scope* used_scope, signal_render_ctx* render_data);          // Развёртка с фикс. кол-вом периодов
 
 
-void scope_display_animation(Scope* used_scope);                                    // Расчёт анимации мерцания дисплеев
+void draw_signal(Scope* used_scope, SDL_Renderer* renderer);                                // Функция рендеринга сигнала
+
+
+void scope_display_animation(Scope* used_scope);                                            // Расчёт анимации мерцания дисплеев
+
 
 // =========================================================================================== SCOPE GUI (scope_gui.c)
 

@@ -1860,174 +1860,408 @@ static int find_sample_index_by_time(scope_buffer_ctx* buffer, double target_tim
 
 
 /**
- * @brief Ищет момент последнего валидного восходящего фронта сигнала.
+ * @brief Ищет момент начала последней валидной восходящей полуволны.
  *
- * Уровень триггера - текущий running_dc_offset, ширина гистерезиса -
- * текущий running_treshold. Момент пересечения уточняется линейной
- * интерполяцией между двумя соседними сэмплами, поэтому возвращается
- * не время сэмпла, а дробное время реального пересечения.
+ * Уровень полуволны определяется текущим running_dc_offset.
+ * Для подтверждения начала полуволны используется существующий
+ * hysteresis-механизм триггера.
+ *
+ * В отличие от обычного trigger_time функция возвращает не момент
+ * пересечения running_dc_offset, а момент, соответствующий началу
+ * восходящей полуволны.
+ *
+ * Поэтому последующий renderer начинает построение с начала полуволны,
+ * а не с произвольного места внутри неё.
  *
  * @param used_scope Осциллограф, чей буфер анализируется
  * @param window_time Полная длительность окна развёртки в секундах
- * @param out_trigger_time Приёмник найденного момента времени
+ * @param out_trigger_time Приёмник времени начала полуволны
  *
- * @return true, если валидный фронт найден
- *
+ * @return true, если валидное начало полуволны найдено
  */
-static bool find_trigger_time(Scope* used_scope, double window_time, double* out_trigger_time)
+static bool find_trigger_time(
+    Scope* used_scope,
+    double window_time,
+    double* out_trigger_time
+)
 {
-    scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
+    scope_buffer_ctx* buffer =
+        &used_scope->signal_control_data.scope_buffer_data;
 
-    scope_signal_control_ctx* signal = &used_scope->signal_control_data;
-
-
-    if (buffer->count < 8) return false;
-    if (window_time <= 0.0) return false;
+    scope_signal_control_ctx* signal =
+        &used_scope->signal_control_data;
 
 
-    float level = signal->running_signal_characteristics.running_dc_offset;
-    float hysteresis = signal->filter_ctx.running_treshold;
+    // ===== Санитарные проверки =====
 
-    if (!isfinite(level) || !isfinite(hysteresis) || hysteresis <= 0.0f) return false;
+    if (buffer->count < 8)
+        return false;
 
+    if (!(window_time > 0.0) ||
+        !isfinite(window_time))
+        return false;
 
-    int newest_idx = (buffer->head + BUFFER_SIZE - 1) % BUFFER_SIZE;
-
-    double newest_time = buffer->samples[newest_idx].time;
-
-
-    // Триггер обязан оставить справа от себя (1 - pretrigger) экрана,
-    // а слева - pretrigger экрана, иначе кадр нечем будет заполнить
-
-    double latest_allowed_time = newest_time - (1.0 - RENDER_PRETRIGGER_PART) * window_time;
-
-    double history_time = (double)(buffer->count - 2) / (double)SCOPE_SAMPLE_RATE;
-
-    double oldest_allowed_time = newest_time - history_time + RENDER_PRETRIGGER_PART * window_time;
-
-    if (latest_allowed_time <= oldest_allowed_time) return false;
+    // ===== Санитарные проверки =====
 
 
-    // Ширина окна проверки гистерезиса - примерно четверть периода.
-    // Проверять дальше бессмысленно: за четверть периода сигнал заведомо
-    // успевает дойти до своего экстремума
+    // ===== Параметры сигнала =====
 
-    int hysteresis_samples = MIN_TRIGGER_HYSTERESIS_SAMPLES;
+    float level =
+        signal->running_signal_characteristics.running_dc_offset;
 
-    float measured_period = signal->measured_signal_characteristics.measured_period;
+    float hysteresis =
+        signal->filter_ctx.running_treshold;
 
-    if (measured_period > 0.0f && isfinite(measured_period))
+
+    if (!isfinite(level) ||
+        !isfinite(hysteresis) ||
+        hysteresis <= 0.0f)
     {
-        hysteresis_samples = (int)(0.25f * measured_period * (float)SCOPE_SAMPLE_RATE);
+        return false;
     }
 
-    if (hysteresis_samples < MIN_TRIGGER_HYSTERESIS_SAMPLES) hysteresis_samples = MIN_TRIGGER_HYSTERESIS_SAMPLES;
-    if (hysteresis_samples > MAX_TRIGGER_HYSTERESIS_SAMPLES) hysteresis_samples = MAX_TRIGGER_HYSTERESIS_SAMPLES;
+    // ===== Параметры сигнала =====
 
 
-    int max_steps = buffer->count - 2;
+    int newest_idx =
+        (buffer->head + BUFFER_SIZE - 1) % BUFFER_SIZE;
+
+    double newest_time =
+        buffer->samples[newest_idx].time;
 
 
-    for (int step = 1; step < max_steps; step++)
+    // ===== Допустимое окно триггера =====
+    //
+    // Триггер должен оставить достаточно данных:
+    //
+    // слева  -> pretrigger
+    // справа -> остаток экрана
+    //
+    // Поэтому ищем только внутри допустимого диапазона.
+
+    double latest_allowed_time =
+        newest_time -
+        (1.0 - RENDER_PRETRIGGER_PART) *
+        window_time;
+
+
+    int oldest_idx =
+        (buffer->head - buffer->count + BUFFER_SIZE) %
+        BUFFER_SIZE;
+    
+    double oldest_time =
+        buffer->samples[oldest_idx].time;
+    
+    double oldest_allowed_time =
+        oldest_time +
+        RENDER_PRETRIGGER_PART * window_time;
+
+    if (latest_allowed_time <= oldest_allowed_time)
+        return false;
+
+    // ===== Допустимое окно триггера =====
+
+
+    // ===== Размер зоны проверки гистерезиса =====
+
+    int hysteresis_samples =
+        MIN_TRIGGER_HYSTERESIS_SAMPLES;
+
+
+    float measured_period =
+        signal->measured_signal_characteristics.measured_period;
+
+
+    if (measured_period > 0.0f &&
+        isfinite(measured_period))
     {
-        int idx = (newest_idx - step + BUFFER_SIZE) % BUFFER_SIZE;
-        int next_idx = (idx + 1) % BUFFER_SIZE;
-
-        double sample_time = buffer->samples[idx].time;
-
-        // Ещё не дошли до зоны, где триггер разрешён
-        if (sample_time > latest_allowed_time) continue;
-
-        // Ушли за пределы имеющейся истории
-        if (sample_time < oldest_allowed_time) break;
+        hysteresis_samples =
+            (int)(
+                0.25f *
+                measured_period *
+                (float)SCOPE_SAMPLE_RATE
+            );
+    }
 
 
-        float value = buffer->samples[idx].value;
-        float next_value = buffer->samples[next_idx].value;
+    if (hysteresis_samples <
+        MIN_TRIGGER_HYSTERESIS_SAMPLES)
+    {
+        hysteresis_samples =
+            MIN_TRIGGER_HYSTERESIS_SAMPLES;
+    }
 
 
-        // Кандидат: между idx и next_idx сигнал прошёл уровень снизу вверх
-        if (!(value <= level && next_value > level)) continue;
+    if (hysteresis_samples >
+        MAX_TRIGGER_HYSTERESIS_SAMPLES)
+    {
+        hysteresis_samples =
+            MAX_TRIGGER_HYSTERESIS_SAMPLES;
+    }
+
+    // ===== Размер зоны проверки гистерезиса =====
+
+
+    int max_steps =
+        buffer->count - 2;
+
+
+    // ===== Поиск последнего восходящего перехода =====
+
+    for (int step = 1;
+         step < max_steps;
+         step++)
+    {
+        int idx =
+            (newest_idx -
+             step +
+             BUFFER_SIZE) %
+            BUFFER_SIZE;
+
+
+        int next_idx =
+            (idx + 1) % BUFFER_SIZE;
+
+
+        double sample_time =
+            buffer->samples[idx].time;
+
+
+
+        float value =
+            buffer->samples[idx].value;
+
+        float next_value =
+            buffer->samples[next_idx].value;
+
+
+        // ============================================================
+        // Кандидат на начало восходящей полуволны
+        // ============================================================
+        //
+        // Здесь по-прежнему находим переход через running_dc_offset.
+        // Но сам этот crossing больше НЕ будет результатом функции.
+        //
+        // Он используется только как опорная точка, относительно
+        // которой подтверждаем, что это действительно начало
+        // полуволны, а не случайное пересечение шума.
+        //
+
+        if (!(value <= level &&
+              next_value > level))
+        {
+            continue;
+        }
 
 
         // ===== Проверка гистерезиса =====
-        //
-        // Без неё на шуме за один период набирается несколько десятков
-        // касаний уровня, и каждый кадр триггер цепляется за случайное
-        // из них. Это и была главная причина скачков картинки
 
         bool went_low = false;
         bool went_high = false;
 
 
-        for (int back = 1; back <= hysteresis_samples; back++)
+        // ------------------------------------------------------------
+        // Назад:
+        //
+        // До начала фронта сигнал должен действительно находиться
+        // ниже нижней границы гистерезиса.
+        // ------------------------------------------------------------
+
+        for (int back = 1;
+             back <= hysteresis_samples;
+             back++)
         {
-            int probe_idx = (idx - back + BUFFER_SIZE) % BUFFER_SIZE;
+            int probe_idx =
+                (idx -
+                 back +
+                 BUFFER_SIZE) %
+                BUFFER_SIZE;
 
-            float probe_value = buffer->samples[probe_idx].value;
 
-            if (probe_value < level - hysteresis)
+            float probe_value =
+                buffer->samples[probe_idx].value;
+
+
+            if (probe_value <
+                level - hysteresis)
             {
                 went_low = true;
                 break;
             }
 
-            // Слева сигнал уже был выше уровня - значит это не начало фронта
-            if (probe_value > level + hysteresis) break;
+
+            // Слева сигнал уже находился выше верхней
+            // границы гистерезиса.
+            //
+            // Значит это не начало нового фронта.
+
+            if (probe_value >
+                level + hysteresis)
+            {
+                break;
+            }
         }
 
+        // ------------------------------------------------------------
+        // Вперёд:
+        //
+        // После перехода сигнал должен действительно уйти
+        // выше верхней границы гистерезиса.
+        // ------------------------------------------------------------
 
-        for (int forward = 1; forward <= hysteresis_samples; forward++)
+        for (int forward = 1;
+             forward <= hysteresis_samples;
+             forward++)
         {
-            int probe_idx = (next_idx + forward) % BUFFER_SIZE;
+            int probe_idx =
+                (next_idx +
+                 forward) %
+                BUFFER_SIZE;
 
-            // Дальше свежайшего сэмпла данных нет
-            if (probe_idx == (newest_idx + 1) % BUFFER_SIZE) break;
 
-            float probe_value = buffer->samples[probe_idx].value;
+            // Дальше свежайшего сэмпла данных нет.
+            if (probe_idx ==
+                (newest_idx + 1) % BUFFER_SIZE)
+            {
+                break;
+            }
 
-            if (probe_value > level + hysteresis)
+
+            float probe_value =
+                buffer->samples[probe_idx].value;
+
+
+            if (probe_value >
+                level + hysteresis)
             {
                 went_high = true;
                 break;
             }
 
-            if (probe_value < level - hysteresis) break;
+
+            if (probe_value <
+                level - hysteresis)
+            {
+                break;
+            }
         }
 
 
-        if (!went_low || !went_high) continue;
+        if (!went_low ||
+            !went_high)
+        {
+            continue;
+        }
 
         // ===== Проверка гистерезиса =====
 
 
-        // ===== Уточнение момента пересечения =====
-        //
-        // Линейная интерполяция между двумя соседними сэмплами даёт
-        // субсэмпловую точность. Именно она убирает остаточный джиттер
-        // на величину до одного пикселя, который был у привязки к целому сэмплу
+        // ============================================================
+        // Теперь нашли подтверждённый восходящий фронт.
+        // Находим реальное начало полуволны.
+        // ============================================================
 
-        double time_1 = buffer->samples[idx].time;
-        double time_2 = buffer->samples[next_idx].time;
+        double start_time = sample_time;
 
-        double crossing_time = time_1;
+        float start_level = level - hysteresis;
 
-        if (next_value != value)
+        bool start_found = false;
+
+
+        // Идём назад от найденного DC-crossing,
+        // пока не найдём пересечение нижней границы.
+
+        for (int back = 1;
+            back <= hysteresis_samples;
+            back++)
         {
-            crossing_time = time_1 + (double)((level - value) / (next_value - value)) * (time_2 - time_1);
+            int current_idx =
+                (idx - back + BUFFER_SIZE) % BUFFER_SIZE;
+
+            int next_start_idx =
+                (current_idx + 1) % BUFFER_SIZE;
+
+            float current_value =
+                buffer->samples[current_idx].value;
+
+            float next_start_value =
+                buffer->samples[next_start_idx].value;
+
+
+            if (current_value <= start_level &&
+                next_start_value > start_level)
+            {
+                double time_1 =
+                    buffer->samples[current_idx].time;
+
+                double time_2 =
+                    buffer->samples[next_start_idx].time;
+
+
+                if (next_start_value != current_value)
+                {
+                    double part =
+                        (start_level - current_value) /
+                        (next_start_value - current_value);
+
+                    if (part < 0.0)
+                        part = 0.0;
+
+                    if (part > 1.0)
+                        part = 1.0;
+
+                    start_time =
+                        time_1 +
+                        part * (time_2 - time_1);
+                }
+                else
+                {
+                    start_time = time_1;
+                }
+
+                start_found = true;
+                break;
+            }
         }
 
-        // ===== Уточнение момента пересечения =====
+
+        // Не нашли границу начала полуволны.
+        // Такой кандидат использовать нельзя.
+
+        if (!start_found)
+            continue;
 
 
-        *out_trigger_time = crossing_time;
+        // ============================================================
+        // Теперь проверяем уже НАСТОЯЩИЙ якорь развёртки.
+        //
+        // Именно start_time будет передан renderer,
+        // поэтому именно он должен находиться
+        // в допустимом временном диапазоне.
+        // ============================================================
+
+        if (start_time > latest_allowed_time)
+            continue;
+
+        if (start_time < oldest_allowed_time)
+            break;
+
+
+        // ============================================================
+        // Валидное начало полуволны найдено.
+        // ============================================================
+
+        *out_trigger_time = start_time;
 
         return true;
     }
 
+    // ===== Поиск последнего восходящего перехода =====
+
 
     return false;
 }
+
 
 
 /**
@@ -2037,9 +2271,18 @@ static bool find_trigger_time(Scope* used_scope, double window_time, double* out
  * поэтому выйти за границы кольцевого буфера здесь невозможно.
  *
  * Делает три вещи:
- *  1) min/max-децимацию, когда в пиксель попадает больше одного сэмпла;
- *  2) линейную интерполяцию, когда в пиксель не попадает ни одного;
- *  3) экранный temporal-фильтр относительно предыдущего кадра.
+ *
+ *  1. min/max-децимацию, когда в пиксель попадает больше одного сэмпла;
+ *  2. линейную интерполяцию, когда в пиксель не попадает ни одного;
+ *  3. субпиксельный экранный temporal-фильтр относительно предыдущего кадра.
+ *
+ * Temporal-фильтр работает во float-координатах. Это позволяет избежать
+ * накопления ошибки от целочисленного округления на каждом кадре.
+ *
+ * Дополнительно применяется защитная зона дисплея:
+ *
+ *  - слева и справа сигнал не рисуется в области рамки;
+ *  - сверху и снизу сигнал не рисуется за внутренними границами дисплея.
  *
  * @param used_scope Осциллограф-владелец данных
  * @param render_data Приёмник точек развёртки
@@ -2047,7 +2290,6 @@ static bool find_trigger_time(Scope* used_scope, double window_time, double* out
  * @param pixel_time Сколько времени приходится на один пиксель по горизонтали
  * @param pixel_signal Сколько вольт приходится на один пиксель по вертикали
  * @param points_quantity Сколько точек нужно заполнить (ширина дисплея в пикселях)
- *
  */
 static void fill_render_points_by_time_window(
 
@@ -2063,58 +2305,110 @@ static void fill_render_points_by_time_window(
 
 )
 {
-    scope_buffer_ctx* buffer = &used_scope->signal_control_data.scope_buffer_data;
+    scope_buffer_ctx* buffer =
+        &used_scope->signal_control_data.scope_buffer_data;
 
-    scope_gui_basic_parameters* gui_parameters = &used_scope->scope_render_data.gui_parameters;
+    scope_gui_basic_parameters* gui_parameters =
+        &used_scope->scope_render_data.gui_parameters;
 
-    anchor_points_ctx* display_anchors = &gui_parameters->screen_anchor_points;
+    anchor_points_ctx* display_anchors =
+        &gui_parameters->screen_anchor_points;
 
 
     // ===== Санитарные проверки =====
 
-    if (points_quantity < 2) return;
+    if (points_quantity < 2)
+        return;
 
-    if (points_quantity > RENDER_POINTS_BUFFER_SIZE) points_quantity = RENDER_POINTS_BUFFER_SIZE;
+    if (points_quantity > RENDER_POINTS_BUFFER_SIZE)
+        points_quantity = RENDER_POINTS_BUFFER_SIZE;
 
-    if (!(pixel_time > 0.0) || !(pixel_signal > 0.0)) return;
+    if (!(pixel_time > 0.0) ||
+        !(pixel_signal > 0.0))
+        return;
 
-    if (!isfinite(window_start_time)) return;
+    if (!isfinite(window_start_time))
+        return;
 
     // ===== Санитарные проверки =====
 
 
     // ===== Опорные величины =====
 
-    double current_zero_shift = used_scope->scope_render_data.current_zero_shift;
+    double current_zero_shift =
+        used_scope->scope_render_data.current_zero_shift;
 
-    int x_0_pixel = display_anchors->CL.x;
-    int y_0_pixel = display_anchors->CL.y + (int)(-current_zero_shift / pixel_signal);
+    int x_0_pixel =
+        display_anchors->CL.x;
 
-    int display_center_y = display_anchors->CC.y;
+    int y_0_pixel =
+        display_anchors->CL.y +
+        (int)(-current_zero_shift / pixel_signal);
 
-    // Половина высоты дисплея за вычетом толщины рамки - за неё выходить нельзя
-    int half_height_pixels = gui_parameters->display_h / 2 - gui_parameters->lines_thickness * 2;
-
-    if (half_height_pixels < 1) half_height_pixels = 1;
+    int display_center_y =
+        display_anchors->CC.y;
 
 
-    int newest_idx = (buffer->head + BUFFER_SIZE - 1) % BUFFER_SIZE;
+    // Половина высоты дисплея за вычетом защитной зоны рамки.
+    //
+    // Сигнал не должен доходить до самой линии рамки.
+    int half_height_pixels =
+        gui_parameters->display_h / 2 -
+        gui_parameters->lines_thickness * 2;
+
+    if (half_height_pixels < 1)
+        half_height_pixels = 1;
+
+
+    int top_limit =
+        display_center_y - half_height_pixels;
+
+    int bottom_limit =
+        display_center_y + half_height_pixels;
+
+
+    // ===== Защитные зоны по горизонтали =====
+    //
+    // Оставляем несколько пикселей возле левой и правой рамки.
+    //
+    // В старой реализации использовалась зона:
+    //
+    //     lines_thickness * 2
+    //
+    // Поэтому сохраняем ту же геометрию.
+
+    int left_guard =
+        gui_parameters->lines_thickness * 2;
+
+    int right_guard =
+        gui_parameters->lines_thickness * 2;
+
+    // ===== Защитные зоны по горизонтали =====
+
+
+    int newest_idx =
+        (buffer->head + BUFFER_SIZE - 1) % BUFFER_SIZE;
 
     // ===== Опорные величины =====
 
 
-    int idx = find_sample_index_by_time(buffer, window_start_time);
+    int idx =
+        find_sample_index_by_time(buffer, window_start_time);
+
 
     if (idx < 0)
     {
-        // Запрошенного времени в буфере уже нет - гасим кадр целиком
-        // и сбрасываем persistence, чтобы следующий кадр строился с нуля
+        // Запрошенного времени в буфере уже нет.
+        //
+        // Гасим кадр целиком и сбрасываем persistence,
+        // чтобы следующий валидный кадр строился с нуля.
 
         render_data->size = points_quantity;
 
         for (int i = 0; i < points_quantity; i++)
         {
             render_data->points[i].show = false;
+            render_data->points[i].persistence_y = 0.0f;
         }
 
         render_data->persistence_valid = false;
@@ -2123,17 +2417,25 @@ static void fill_render_points_by_time_window(
     }
 
 
-    // Temporal-фильтр применим только если прошлый кадр строился
-    // с той же геометрией
-    bool persistence_ready = render_data->persistence_valid && (render_data->size == points_quantity);
+    // Temporal-фильтр применим только если предыдущий кадр
+    // имел ту же геометрию по горизонтали.
+    bool persistence_ready =
+        render_data->persistence_valid &&
+        (render_data->size == points_quantity);
+
 
     bool data_exhausted = false;
 
 
     for (int i = 0; i < points_quantity; i++)
     {
-        double pixel_start_time = window_start_time + (double)i * pixel_time;
-        double pixel_end_time = pixel_start_time + pixel_time;
+        double pixel_start_time =
+            window_start_time +
+            (double)i * pixel_time;
+
+        double pixel_end_time =
+            pixel_start_time +
+            pixel_time;
 
 
         // ===== Сбор всех сэмплов, попавших в текущий пиксель =====
@@ -2144,12 +2446,19 @@ static void fill_render_points_by_time_window(
         int samples_in_pixel = 0;
 
 
-        while (!data_exhausted && buffer->samples[idx].time < pixel_end_time)
+        while (!data_exhausted &&
+               buffer->samples[idx].time < pixel_end_time)
         {
-            float value = buffer->samples[idx].value;
+            float value =
+                buffer->samples[idx].value;
 
-            if (value < value_min) value_min = value;
-            if (value > value_max) value_max = value;
+
+            if (value < value_min)
+                value_min = value;
+
+            if (value > value_max)
+                value_max = value;
+
 
             samples_in_pixel += 1;
 
@@ -2160,7 +2469,9 @@ static void fill_render_points_by_time_window(
                 break;
             }
 
-            idx = (idx + 1) % BUFFER_SIZE;
+
+            idx =
+                (idx + 1) % BUFFER_SIZE;
         }
 
         // ===== Сбор всех сэмплов, попавших в текущий пиксель =====
@@ -2171,37 +2482,61 @@ static void fill_render_points_by_time_window(
 
         if (samples_in_pixel > 0)
         {
-            value_center = 0.5f * (value_min + value_max);
+            value_center =
+                0.5f * (value_min + value_max);
         }
         else if (!data_exhausted)
         {
-            // На быстрых развёртках на пиксель приходится меньше одного сэмпла.
-            // Берём линейную интерполяцию между соседними сэмплами.
+            // На быстрых развёртках на пиксель приходится
+            // меньше одного сэмпла.
             //
-            // Раньше вместо этого бралось "первое значение, чьё время больше
-            // целевого", то есть выборка округлялась вниз с ошибкой до целого
-            // сэмпла - и эта ошибка каждый кадр была разной
+            // Берём линейную интерполяцию между соседними
+            // сэмплами.
 
-            int prev_idx = (idx - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+            int prev_idx =
+                (idx - 1 + BUFFER_SIZE) % BUFFER_SIZE;
 
-            double time_1 = buffer->samples[prev_idx].time;
-            double time_2 = buffer->samples[idx].time;
 
-            float value_1 = buffer->samples[prev_idx].value;
-            float value_2 = buffer->samples[idx].value;
+            double time_1 =
+                buffer->samples[prev_idx].time;
 
-            double span = time_2 - time_1;
+            double time_2 =
+                buffer->samples[idx].time;
+
+
+            float value_1 =
+                buffer->samples[prev_idx].value;
+
+            float value_2 =
+                buffer->samples[idx].value;
+
+
+            double span =
+                time_2 - time_1;
+
 
             if (span > 0.0)
             {
-                double part = (pixel_start_time - time_1) / span;
+                double part =
+                    (pixel_start_time - time_1) / span;
 
-                if (part < 0.0) part = 0.0;
-                if (part > 1.0) part = 1.0;
 
-                value_center = value_1 + (float)part * (value_2 - value_1);
+                if (part < 0.0)
+                    part = 0.0;
+
+                if (part > 1.0)
+                    part = 1.0;
+
+
+                value_center =
+                    value_1 +
+                    (float)part *
+                    (value_2 - value_1);
             }
-            else value_center = value_2;
+            else
+            {
+                value_center = value_2;
+            }
 
 
             value_min = value_center;
@@ -2209,74 +2544,186 @@ static void fill_render_points_by_time_window(
         }
         else
         {
-            // Данные кончились - остаток кадра просто не показываем
+            // Данные закончились.
+            // Остаток кадра не показываем.
 
-            render_data->points[i].x = x_0_pixel + i;
+            render_data->points[i].x =
+                x_0_pixel + i;
+
             render_data->points[i].show = false;
 
             continue;
         }
 
 
-        // ===== Перевод в пиксели =====
+        // ===== Перевод в экранные координаты =====
 
-        // Знак минус - экранная ось Y направлена вниз
-        int y_center = y_0_pixel - (int)(value_center / pixel_signal);
-        int y_top = y_0_pixel - (int)(value_max / pixel_signal);
-        int y_bottom = y_0_pixel - (int)(value_min / pixel_signal);
+        float y_center_float =
+            (float)y_0_pixel -
+            value_center / (float)pixel_signal;
 
-        // ===== Перевод в пиксели =====
+        float y_top_float =
+            (float)y_0_pixel -
+            value_max / (float)pixel_signal;
+
+        float y_bottom_float =
+            (float)y_0_pixel -
+            value_min / (float)pixel_signal;
+
+        // ===== Перевод в экранные координаты =====
 
 
-        // ===== Экранный temporal-фильтр (persistence) =====
-        //
-        // Даже идеально выровненная развёртка меняется от кадра к кадру
-        // на доли пикселя, а округление до целого превращает эти доли
-        // в видимое дрожание на один пиксель. Фильтр первого порядка
-        // по экранной координате его убирает: при beta = 0.35 картинка
-        // догоняет реальное изменение примерно за три кадра, то есть
-        // за 0.1 с - глазом это уже воспринимается как мгновенно
+        // ===== Экранный temporal-фильтр =====
+
+        float filtered_y_float =
+            y_center_float;
+
 
         if (persistence_ready)
         {
-            int previous_y = render_data->points[i].y;
+            float previous_y =
+                render_data->points[i].persistence_y;
 
-            int filtered_y = previous_y + (int)(RENDER_PERSISTENCE_BETHA * (float)(y_center - previous_y));
 
-            int correction = filtered_y - y_center;
+            float delta =
+                y_center_float - previous_y;
 
-            y_center = filtered_y;
+            float abs_delta =
+                fabsf(delta);
 
-            y_top += correction;
-            y_bottom += correction;
+
+            float beta;
+
+
+            if (abs_delta < 1.0f)
+            {
+                beta = 0.20f;
+            }
+            else if (abs_delta < 3.0f)
+            {
+                beta = 0.35f;
+            }
+            else if (abs_delta < 6.0f)
+            {
+                beta = 0.55f;
+            }
+            else
+            {
+                beta = 0.85f;
+            }
+
+
+            filtered_y_float =
+                previous_y +
+                beta * delta;
         }
 
-        // ===== Экранный temporal-фильтр (persistence) =====
+
+        render_data->points[i].persistence_y =
+            filtered_y_float;
 
 
-        // ===== Клиппинг по границам дисплея =====
-
-        int top_limit = display_center_y - half_height_pixels;
-        int bottom_limit = display_center_y + half_height_pixels;
-
-        bool inside = (y_center > top_limit) && (y_center < bottom_limit);
-
-        if (y_top < top_limit) y_top = top_limit;
-        if (y_bottom > bottom_limit) y_bottom = bottom_limit;
-
-        // ===== Клиппинг по границам дисплея =====
+        float correction =
+            filtered_y_float - y_center_float;
 
 
-        render_data->points[i].x = x_0_pixel + i;
-        render_data->points[i].y = y_center;
-        render_data->points[i].y_max = y_top;
-        render_data->points[i].y_min = y_bottom;
-        render_data->points[i].show = inside;
+        float filtered_y_top =
+            y_top_float + correction;
+
+        float filtered_y_bottom =
+            y_bottom_float + correction;
+
+
+        // ===== Перевод в целые пиксели =====
+
+        int y_center =
+            (int)lroundf(filtered_y_float);
+
+        int y_top =
+            (int)lroundf(filtered_y_top);
+
+        int y_bottom =
+            (int)lroundf(filtered_y_bottom);
+
+        // ===== Перевод в целые пиксели =====
+
+
+        // ===== Защита границ дисплея =====
+
+        // Горизонтальная защитная зона.
+        bool inside_horizontal =
+            (i >= left_guard) &&
+            (i < points_quantity - right_guard);
+
+
+        // Вертикальная видимость.
+        //
+        // До клиппинга проверяем, пересекает ли исходный
+        // min/max-отрезок рабочую область вообще.
+
+        bool inside_vertical =
+            (y_bottom <= bottom_limit) &&
+            (y_top >= top_limit);
+
+
+        bool inside =
+            inside_horizontal &&
+            inside_vertical;
+
+
+        // Полный клиппинг min/max-отрезка.
+        //
+        // Теперь ни одна координата диапазона не может
+        // физически оказаться за пределами рабочей области.
+
+        if (y_top < top_limit)
+            y_top = top_limit;
+
+        if (y_top > bottom_limit)
+            y_top = bottom_limit;
+
+        if (y_bottom < top_limit)
+            y_bottom = top_limit;
+
+        if (y_bottom > bottom_limit)
+            y_bottom = bottom_limit;
+
+
+        // Центр тоже ограничиваем рабочей областью.
+        // Это особенно важно для случая, когда весь сигнал
+        // или значительная его часть ушла за верх/низ.
+
+        if (y_center < top_limit)
+            y_center = top_limit;
+
+        if (y_center > bottom_limit)
+            y_center = bottom_limit;
+
+        // ===== Защита границ дисплея =====
+
+
+        render_data->points[i].x =
+            x_0_pixel + i;
+
+        render_data->points[i].y =
+            y_center;
+
+        render_data->points[i].y_max =
+            y_top;
+
+        render_data->points[i].y_min =
+            y_bottom;
+
+        render_data->points[i].show =
+            inside;
     }
 
 
-    render_data->size = points_quantity;
-    render_data->persistence_valid = true;
+    render_data->size =
+        points_quantity;
+
+    render_data->persistence_valid =
+        true;
 }
 
 
@@ -2385,6 +2832,7 @@ static double get_whole_screen_time(Scope* used_scope)
 }
 
 
+
 /**
  * @brief Общая часть триггерных режимов: найти окно и заполнить точки.
  *
@@ -2430,7 +2878,7 @@ static void build_triggered_render(
 
     if (find_trigger_time(used_scope, whole_screen_time, &trigger_time))
     {
-        double window_start_time = trigger_time - RENDER_PRETRIGGER_PART * whole_screen_time;
+        double window_start_time = trigger_time; // - RENDER_PRETRIGGER_PART * whole_screen_time;
 
         fill_render_points_by_time_window(
 
@@ -2448,6 +2896,7 @@ static void build_triggered_render(
 
         return;
     }
+
 
 
     // ===== AUTO-режим =====
@@ -3124,8 +3573,10 @@ void decrease_frequency(Button* btn)
     if (used_scope->main_settings.current_state != ON_SS) return;
 
 
-    if (used_scope->signal_control_data.controlled_signal->frequency != 10)
+    if (used_scope->signal_control_data.controlled_signal->frequency >= 10)
         used_scope->signal_control_data.controlled_signal->frequency -= 10;
+    else
+        used_scope->signal_control_data.controlled_signal->frequency = 10;
 }
 
 
@@ -3137,8 +3588,10 @@ void increase_frequency(Button* btn)
     if (used_scope->main_settings.current_state != ON_SS) return;
 
 
-    if (used_scope->signal_control_data.controlled_signal->frequency != 20000)
+    if (used_scope->signal_control_data.controlled_signal->frequency <= 20000)
         used_scope->signal_control_data.controlled_signal->frequency += 10;
+    else
+        used_scope->signal_control_data.controlled_signal->frequency = 20000;
 }
 
 
@@ -3324,10 +3777,7 @@ void change_controlled_signal(Button* btn)
 
     // TEST
     used_scope->signal_control_data.controlled_signal->wave_type_number = 
-        (used_scope->signal_control_data.controlled_signal->wave_type_number + 1) % 10;
-
-
-    printf("signal changed");
+        (used_scope->signal_control_data.controlled_signal->wave_type_number + 1) % 11;
 
 }
 

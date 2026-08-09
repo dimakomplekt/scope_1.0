@@ -68,7 +68,7 @@ void scope_main_settings_init(Scope* used_scope)
 
     used_scope->main_settings.current_time_in_unit_steps = TIUS_1_MS;
     used_scope->main_settings.time_val_in_one_unit = 1;                                 // Базово - 1 (режим с фикс. разв)
-    used_scope->main_settings.signal_val_in_one_unit = 1;                               // Базово - 1 (режим с фикс. разв)
+    used_scope->main_settings.signal_val_in_one_unit = 2;                               // Базово - 1 (режим с фикс. разв)
     
 
 
@@ -3896,9 +3896,9 @@ void scope_fast_update(Scope* used_scope)
 
     }
 
-
     // Базовые элементы GUI - Обновляются всегда
     // Почему-то норм обновы только в рантайм скорости??????????????
+    // При этом по практике лучше, когда они стоят так - перед обновлениями данных
 
     Textbox_update(&used_scope->scope_render_data.scope_signature_textbox, used_scope->scope_render_data.renderer);
 
@@ -3938,6 +3938,8 @@ void scope_fast_update(Scope* used_scope)
 
     Button_update(&used_scope->scope_render_data.scope_on_off_button);
 
+
+    // Основное обновление данных
 
     signal_fast_analysis(used_scope);
 
@@ -4011,6 +4013,5 @@ void scope_destroy(Scope* used_scope)
 
     used_scope = NULL;
 }
-
 
 // =========================================================================================== API realization
