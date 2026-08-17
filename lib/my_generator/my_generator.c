@@ -335,8 +335,13 @@ void my_generator_update(void)
         float random_phase = rand_float(0.2, 0.8);
         
         // Генерим нойз только иногда - когда фаза попадает в окно +- 0.2 от рандомной фазы
-        if (!((phase >= (random_phase - 0.2)) || (phase <= (random_phase + 0.2)))) 
+        if (!(
+            phase >= (random_phase - 0.2f) &&
+            phase <= (random_phase + 0.2f)
+        ))
+        {
             random_noise = 0.0f;
+        }
 
         // 2. Синусоидальная помеха заданной частоты
 
@@ -354,9 +359,11 @@ void my_generator_update(void)
 
         Oscillator_1.current_noise[i] = clean + full_noise; 
 
-
+        /* 
+            Перенос в осц
         audio_ring_buffer_ctx* rb =
             &Oscillator_1.audio_buffer;
+
 
 
         if (1)
@@ -400,8 +407,10 @@ void my_generator_update(void)
                 }
             }
         }
-
+    */
+   
     }
+
 
 
     Oscillator_1.prev_gen_time += simulation_timer_get_time_step(); 

@@ -288,6 +288,13 @@ void scope_filter_init(Scope* used_scope)
     // Стартовое значение берём из ZC_TRESHOLD_START_VALUE - до появления
     // первых данных амплитуда ещё неизвестна, а порог уже нужен
     filter->running_treshold = ZC_TRESHOLD_START_VALUE;
+
+
+    for (int i = 0; i < MEDIAN_FILTER_STOCK_SIZE; i++)
+    {
+        // init as 0
+        filter->filter_stock.samples[i] = 0.0;
+    }
 }
 
 
@@ -488,6 +495,7 @@ void scope_buffer_update(Scope* used_scope)
 
     scope_signal_control_ctx* ctrl = &used_scope->signal_control_data;
     scope_buffer_ctx* buffer = &ctrl->scope_buffer_data;
+    scope_realtime_filtering_ctx* filter = &used_scope->signal_control_data.filter_ctx;
 
 
     if (!ctrl->controlled_signal) return;
@@ -524,6 +532,13 @@ void scope_buffer_update(Scope* used_scope)
             value = my_generator_get_noise();
             break;
 
+        // Получаем пачку нойз значений
+        // после чего фильтруем их при записи
+        // используя медианный фильтр
+        case FILTERED_CST:
+
+            value = my_generator_get_noise();
+            break;
 
         default:
 
@@ -533,9 +548,215 @@ void scope_buffer_update(Scope* used_scope)
     }
 
 
+    // !!! ТЕКУЩАЯ ЗАДАЧА !!!
+
+    // Фильтруем при необходимости фильтрации
+    if (ctrl->type_of_controlled_signal == FILTERED_CST)
+    {
+        float united_samples[MEDIAN_FILTER_STOCK_SIZE + SIM_BUFFER_SIZE];
+
+        // ------------------------------------------------------------
+        // Старый запас
+        // ------------------------------------------------------------
+
+        for (int i = 0; i < MEDIAN_FILTER_STOCK_SIZE; i++)
+        {
+            united_samples[i] = filter->filter_stock.samples[i];
+        }
+
+        // ------------------------------------------------------------
+        // Новые значения
+        // ------------------------------------------------------------
+
+        for (int i = 0; i < SIM_BUFFER_SIZE; i++)
+        {
+            united_samples[MEDIAN_FILTER_STOCK_SIZE + i] = value[i];
+        }
+
+        // ------------------------------------------------------------
+        // Обновляем запас ДО фильтрации,
+        // потому что здесь должны остаться исходные noisy samples.
+        // ------------------------------------------------------------
+
+        for (int i = 0; i < MEDIAN_FILTER_STOCK_SIZE; i++)
+        {
+            filter->filter_stock.samples[i] =
+                value[
+
+                    SIM_BUFFER_SIZE -
+                    MEDIAN_FILTER_STOCK_SIZE +
+                    i
+                    
+                ];
+        }
+
+        // ------------------------------------------------------------
+        // Медианная фильтрация
+        // ------------------------------------------------------------
+
+        float median_window[MEDIAN_FILTER_STEPS];
+
+
+        /*
+
+            united_samples содержит непрерывный участок сигнала:
+
+            [ S S S S S S | N N N N N N N N ... N ]
+              \____6____/   \_______128_______/
+                stock              new
+
+
+            Для каждого выходного value[i] берём окно из 7 samples
+            и сдвигаем его на одну позицию вправо:
+
+            i = 0:
+
+            united:
+            [ 0  1  2  3  4  5  6  7  8  9 ... ]
+              \___________/
+                   окно 7
+                    ↓
+                  median
+                    ↓
+                  value[0]
+
+
+            i = 1:
+
+            united:
+            [ 0  1  2  3  4  5  6  7  8  9 ... ]
+                 \___________/
+                      окно 7
+                       ↓
+                     median
+                       ↓
+                     value[1]
+
+
+            i = 2:
+
+            united:
+            [ 0  1  2  3  4  5  6  7  8  9 ... ]
+                    \___________/
+                         окно 7
+                          ↓
+                        median
+                          ↓
+                        value[2]
+
+                              ...
+
+            i = 127:
+
+            united:
+            [ ... 127 128 129 130 131 132 133 ]
+                  \___________________________/
+                            окно 7
+                             ↓
+                           median
+                             ↓
+                           value[127]
+
+
+            Таким образом:
+
+            134 united samples
+                    ↓
+              128 окон по 7
+                    ↓
+              128 медиан
+                    ↓
+              128 filtered values
+
+
+            Само окно median_window каждый раз перезаполняется
+            текущими 7 samples:
+
+            united_samples[i ... i + 6]
+                       ↓
+            median_window[0 ... 6]
+                       ↓
+                     qsort
+                       ↓
+            [min ... median ... max]
+                       ↓
+            median_window[3]
+                       ↓
+                    value[i]
+
+
+            На числах:
+
+            ВХОД:
+            1  2  19  3  5  6  7  8  9  10  11  12  13  14  15
+                ↑
+                выброс
+
+
+            ВЫХОД:
+            5  6  7  7  8  9  10  11  12 ...
+
+
+        */
+
+
+        for (int i = 0; i < SIM_BUFFER_SIZE; i++)
+        {
+            for (int j = 0; j < MEDIAN_FILTER_STEPS; j++)
+            {
+                median_window[j] = united_samples[i + j];
+            }
+
+            qsort(
+
+                median_window,
+                MEDIAN_FILTER_STEPS,
+                sizeof(float),
+                compare_float
+
+            );
+
+            value[i] =
+                median_window[
+                    MEDIAN_FILTER_STEPS / 2
+                ];
+        }
+    }
+    
+    // !!! ТЕКУЩАЯ ЗАДАЧА !!!
+
+
     // ===== Заполнение буффера =====
     for (int i = 0; i < SIM_BUFFER_SIZE; i++)
     {
+
+        // Выдаем значения аудиокарте
+        audio_ring_buffer_ctx* rb =
+            &Oscillator_1.audio_buffer;
+            
+        if (1)
+        {
+                int next_write =
+                    rb->write_index + 1;
+
+
+                if (next_write >= AUDIO_RING_SIZE)
+                {
+                    next_write = 0;
+                }
+
+
+                if (next_write != rb->read_index)
+                {
+                    rb->samples[rb->write_index] = value[i] / 5.0f;
+
+                    rb->write_index = next_write;
+                }
+
+        }
+
+
+        // Занимаемся делами осциллографа
 
         int head = buffer->head;
 

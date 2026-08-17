@@ -62,6 +62,8 @@
 #define K_TRESHOLD_STEP                     0.01f
 #define OFFSET_BLEND_STEP                   0.01f
 
+#define MEDIAN_FILTER_STEPS                 7
+#define MEDIAN_FILTER_STOCK_SIZE            (MEDIAN_FILTER_STEPS - 1)
 
 // ===== Настройки оценки шума и адаптивного порога =====
 
@@ -251,6 +253,7 @@ typedef enum controlled_signal_type
 
     CLEAN_CST,
     NOISED_CST,
+    FILTERED_CST,
     
     LIMIT_CST
     
@@ -318,6 +321,18 @@ typedef struct running_median_ctx {
 } running_median_ctx;
 
 
+
+// Основной буффер
+typedef struct median_filter_ctx {
+
+    // Stock
+    float samples[MEDIAN_FILTER_STOCK_SIZE];
+
+} median_filter_ctx;
+
+
+
+
 // Общий контекст фильтрации инпута
 typedef struct scope_realtime_filtering_ctx {
 
@@ -341,6 +356,11 @@ typedef struct scope_realtime_filtering_ctx {
     // Коэффициент трешхолда
     float k_treshold;
     float running_treshold;
+
+
+    // Запас медианного фильтра
+
+    median_filter_ctx filter_stock;
 
 } scope_realtime_filtering_ctx;
 

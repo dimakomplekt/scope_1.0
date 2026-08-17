@@ -3769,11 +3769,6 @@ void change_controlled_signal(Button* btn)
     used_scope->signal_control_data.controlled_signal->clean_or_noise = 
         !used_scope->signal_control_data.controlled_signal->clean_or_noise;
 
-
-    // TEST
-    used_scope->signal_control_data.controlled_signal->wave_type_number = 
-        (used_scope->signal_control_data.controlled_signal->wave_type_number + 1) % 11;
-
 }
 
 

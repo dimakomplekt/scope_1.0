@@ -47,6 +47,7 @@ typedef struct my_generator
 
 
     audio_ring_buffer_ctx audio_buffer;
+    
     bool clean_or_noise; // true - чистый сигнал, false - шумовой сигнал
 
     
