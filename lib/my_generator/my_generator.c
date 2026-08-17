@@ -133,6 +133,8 @@ void my_generator_update(void)
                 break;
             }
 
+
+            /*
             // -------------------------------------------------------------
             // 0. Какая-то тяжелая волна
             // -------------------------------------------------------------
@@ -295,6 +297,7 @@ void my_generator_update(void)
 
                 break;
             }
+            */
 
             default:
             {
@@ -327,9 +330,13 @@ void my_generator_update(void)
         // Oscillator_1.current_noise[i] = clean + noise;
 
 
-        // 1. Белый шум
-        float random_noise = rand_float(-0.1f, 0.1f);
-
+        // 1. Белый шум 
+        float random_noise = rand_float(-1.0f, 1.0f);
+        float random_phase = rand_float(0.2, 0.8);
+        
+        // Генерим нойз только иногда - когда фаза попадает в окно +- 0.2 от рандомной фазы
+        if (!((phase >= (random_phase - 0.2)) || (phase <= (random_phase + 0.2)))) 
+            random_noise = 0.0f;
 
         // 2. Синусоидальная помеха заданной частоты
 
@@ -343,7 +350,7 @@ void my_generator_update(void)
 
         // Белый шум + синусоидальная помеха
         // При текущих настройках - в пределах от -0.25 до +1.45, что даёт диапазон сигнала от -0.25 до 1.45
-        float full_noise = random_noise + harmonic_noise;
+        float full_noise = random_noise; // + harmonic_noise;
 
         Oscillator_1.current_noise[i] = clean + full_noise; 
 
