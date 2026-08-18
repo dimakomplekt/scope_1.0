@@ -44,8 +44,6 @@ void my_generator_init(float amplitude, float frequency)
     Oscillator_1.frequency = frequency;
     Oscillator_1.initialized = 1;
 
-    Oscillator_1.clean_or_noise = true;
-
 
     Oscillator_1.wave_type_number = 0;
 
@@ -134,7 +132,7 @@ void my_generator_update(void)
             }
 
 
-            /*
+
             // -------------------------------------------------------------
             // 0. Какая-то тяжелая волна
             // -------------------------------------------------------------
@@ -297,7 +295,7 @@ void my_generator_update(void)
 
                 break;
             }
-            */
+
 
             default:
             {
@@ -358,56 +356,6 @@ void my_generator_update(void)
         float full_noise = random_noise; // + harmonic_noise;
 
         Oscillator_1.current_noise[i] = clean + full_noise; 
-
-        /* 
-            Перенос в осц
-        audio_ring_buffer_ctx* rb =
-            &Oscillator_1.audio_buffer;
-
-
-
-        if (1)
-        {
-            if (Oscillator_1.clean_or_noise)
-            {
-                int next_write =
-                    rb->write_index + 1;
-
-
-                if (next_write >= AUDIO_RING_SIZE)
-                {
-                    next_write = 0;
-                }
-
-
-                if (next_write != rb->read_index)
-                {
-                    rb->samples[rb->write_index] = clean / 5.0f;
-
-                    rb->write_index = next_write;
-                }
-            }
-            else
-            {
-                int next_write =
-                    rb->write_index + 1;
-
-
-                if (next_write >= AUDIO_RING_SIZE)
-                {
-                    next_write = 0;
-                }
-
-
-                if (next_write != rb->read_index)
-                {
-                    rb->samples[rb->write_index] = (clean + full_noise) / 5.0f;
-
-                    rb->write_index = next_write;
-                }
-            }
-        }
-    */
    
     }
 

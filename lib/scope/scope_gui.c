@@ -270,11 +270,11 @@ void scope_gui_init(Scope* used_scope, SDL_Renderer* renderer)
     used_scope->scope_render_data.basic_pixels_quantity_in_equivalent_unit = 50;
 
     // Colors
-    used_scope->scope_render_data.main_color_1 = hex_to_sdl_color("#a7f109", 255);
+    used_scope->scope_render_data.main_color_1 = hex_to_sdl_color("#f1094f", 255);
     used_scope->scope_render_data.main_color_2 = hex_to_sdl_color("#040500", 255);
-    used_scope->scope_render_data.main_color_3 = hex_to_sdl_color("#d3e8a6", 255);    
+    used_scope->scope_render_data.main_color_3 = hex_to_sdl_color("#bcb1ed", 255);    
     used_scope->scope_render_data.main_color_4 = hex_to_sdl_color("#0d26e4", 255);
-    used_scope->scope_render_data.main_color_5 = hex_to_sdl_color("#e63a14", 255);
+    used_scope->scope_render_data.main_color_5 = hex_to_sdl_color("#1c0202", 255);
     used_scope->scope_render_data.main_color_6 = hex_to_sdl_color("#313131", 220);
 
 
@@ -3134,9 +3134,9 @@ void draw_signal(Scope* used_scope, SDL_Renderer* renderer)
     signal_render_ctx* signal =
         &used_scope->scope_render_data.signal_render_data;
 
-    SDL_Color color = hex_to_sdl_color("#f60505", 255);
+    // SDL_Color color = hex_to_sdl_color("#f60505", 255);
     // или
-    // SDL_Color color = used_scope->scope_render_data.main_color_5;
+    SDL_Color color = used_scope->scope_render_data.main_color_5;
 
     const int thickness = 3;
 
@@ -3748,27 +3748,17 @@ void change_controlled_signal(Button* btn)
 
 
     if (used_scope->main_settings.current_state != ON_SS) return;
-    
-
-    printf("signal changing");
-
-    // scope_signal_buffer_clear(used_scope);
 
     used_scope->signal_control_data.type_of_controlled_signal += 1;
 
 
-    // ИСПРАВЛЕНО: при достижении предела тип сбрасывался в 1 (NOISED_CST),
-    // а не в 0 (CLEAN_CST). После первого же нажатия чистый сигнал
-    // становился недостижим - кнопка "SIGNAL" перещёлкивала форму волны,
-    // но осциллограф навсегда оставался на зашумлённом входе
     if (used_scope->signal_control_data.type_of_controlled_signal >= LIMIT_CST)
     {
         used_scope->signal_control_data.type_of_controlled_signal = CLEAN_CST;
+
+        // Меняем базовый сигнал на новый (всего 10 волн прописано было)
+        Oscillator_1.wave_type_number = (Oscillator_1.wave_type_number + 1) % 10;
     }
-
-    used_scope->signal_control_data.controlled_signal->clean_or_noise = 
-        !used_scope->signal_control_data.controlled_signal->clean_or_noise;
-
 }
 
 
@@ -3947,9 +3937,9 @@ void scope_render(Scope* used_scope)
         used_scope->scope_render_data.gui_parameters.background_y_2,
         SCREEN_WIDTH,
         SCREEN_HEIGHT,
-        hex_to_sdl_color("#b8f87c", 254),
+        hex_to_sdl_color("#f03c81", 254),
         used_scope->scope_render_data.gui_parameters.background_border_thickness_1,
-        hex_to_sdl_color("#b8f87c", 254)
+        hex_to_sdl_color("#f03c81", 254)
 
     );
 
